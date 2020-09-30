@@ -40,7 +40,11 @@ process busco {
 
     script:
       """
-      gunzip -c $genome > assembly.fasta
+      if [ -f *.gz ]; then
+            gunzip -c $genome > assembly.fasta
+        else
+            ln $genome assembly.fasta
+      fi
       export AUGUSTUS_CONFIG_PATH=augustus_conf
       cp -r /augustus/config/ \$AUGUSTUS_CONFIG_PATH
       busco -c ${task.cpus} -l $busco_db -i assembly.fasta --out run_busco --mode geno
