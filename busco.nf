@@ -26,6 +26,7 @@ geno_busco = genomes.combine(busco_dbs)
 
 process busco {
     tag "${species}_${busco_db}"
+    publishDir params.outdir
 
     container = "$HOME/busco_v4.1.2_cv1.sif"
     cpus 8
