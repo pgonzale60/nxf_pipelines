@@ -26,7 +26,7 @@ geno_busco = genomes.combine(busco_dbs)
 
 process busco {
     tag "${species}_${busco_db}"
-    publishDir params.outdir/${species}_${busco_db}
+    publishDir "params.outdir/${species}_${busco_db}"
 
     input:
       tuple val(species), path(genome), val(busco_db)
