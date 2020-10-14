@@ -28,7 +28,6 @@ process busco {
     tag "${species}_${busco_db}"
     publishDir params.outdir
 
-    container = "$HOME/busco_v4.1.2_cv1.sif"
     cpus 8
 
     input:
@@ -48,6 +47,7 @@ process busco {
       export AUGUSTUS_CONFIG_PATH=augustus_conf
       cp -r /augustus/config/ \$AUGUSTUS_CONFIG_PATH
       busco -c ${task.cpus} -l $busco_db -i assembly.fasta --out run_busco --mode geno
+      mv run_busco/run_*/busco_sequences .
       mv run_busco/short_summary* short_summary_${species}.txt
       mv run_busco/run_*/full_table.tsv ${species}_full_table.tsv
       rm -rf \$AUGUSTUS_CONFIG_PATH run_busco/* assembly.fasta
