@@ -9,7 +9,7 @@ conda install -c conda-forge singularity=3.6.1 -y
 
 Download BUSCO image
 ```
-singularity pull docker://ezlabgva/busco:v4.1.4_cv1
+singularity pull docker://ezlabgva/busco:4.1.2_cv1
 ```
 
 ## Executing the pipeline in the farm
