@@ -35,7 +35,7 @@ process busco {
     output:
       path "${species}_${busco_db}_full_table.tsv", emit: full_busco_table
       path "${species}_${busco_db}_short_summary.txt", emit: short_busco_report
-      path "${species}_${busco_db}_busco_sequences", emit: busco_busco_sequences
+      path "run_busco/run_${busco_db}", emit: busco_busco_sequences
 
     script:
       """
@@ -50,7 +50,7 @@ process busco {
       mv run_busco/run_*/busco_sequences ${species}_${busco_db}_busco_sequences
       mv run_busco/short_summary* ${species}_${busco_db}_short_summary.txt
       mv run_busco/run_*/full_table.tsv ${species}_${busco_db}_full_table.tsv
-      rm -rf \$AUGUSTUS_CONFIG_PATH run_busco/* assembly.fasta
+      rm -rf \$AUGUSTUS_CONFIG_PATH run_busco/blast_db run_busco/run_*/augustus_output run_busco/run_*/blast_output run_busco/run_*/hmmer_output assembly.fasta
       """
 }
 
