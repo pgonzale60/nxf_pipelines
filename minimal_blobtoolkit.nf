@@ -26,9 +26,9 @@ params.taxrule = "bestsumorder"
 
 dmnd_db = Channel.fromPath(params.dmnd_db, checkIfExists: true).collect()
 reads = Channel.fromPath(params.reads, checkIfExists: true)
-                .map { file -> tuple(file.simpleName, file) }
+                .map { file -> tuple(file.Name - ~/.ccs.fasta.gz/, file) }
 assemblies = Channel.fromPath(params.assemblies, checkIfExists: true) 
-                .map { file -> tuple(file.simpleName, file) }
+                .map { file -> tuple(file.simpleName - ~/-hifiasm/, file) }
 
 datasets = reads.join(assemblies)
 
