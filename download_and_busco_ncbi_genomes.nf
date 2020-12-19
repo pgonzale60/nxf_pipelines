@@ -43,7 +43,7 @@ process downAssem {
 
 process busco {
     tag "${sci_name}"
-    publishDir "$params.outdir/${sci_name}", mode: 'move'
+    publishDir "$params.outdir/${sci_name}", mode: 'copy'
 
     input:
       tuple val(sci_name), path(genome)
