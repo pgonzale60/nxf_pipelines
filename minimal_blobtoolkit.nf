@@ -25,9 +25,9 @@ params.taxrule = "bestsumorder"
 // zcat dbs/custom/*.faa.gz | diamond makedb -p 8 -d custom --taxonmap prot.accession2taxid.gz --taxonnodes dbs/nodes.dmp
 
 dmnd_db = Channel.fromPath(params.dmnd_db, checkIfExists: true).collect()
-reads = Channel.fromPath(params.reads)
+reads = Channel.fromPath(params.reads, checkIfExists: true)
                 .map { file -> tuple(file.simpleName, file) }
-assemblies = Channel.fromPath(params.assemblies) 
+assemblies = Channel.fromPath(params.assemblies, checkIfExists: true) 
                 .map { file -> tuple(file.simpleName, file) }
 
 datasets = reads.join(assemblies)
