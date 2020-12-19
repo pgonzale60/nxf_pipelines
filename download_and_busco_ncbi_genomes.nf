@@ -53,22 +53,28 @@ process busco {
     output:
       path "${sci_name}_${busco_db}_full_table.tsv", emit: full_busco_table
       path "${sci_name}_${busco_db}_short_summary.txt", emit: short_busco_report
-      path "run_${busco_db}", emit: busco_busco_sequences
+      path "${sci_name}_${busco_db}_single_copy_busco_sequences*", emit: busco_busco_sequences
 
     script:
       """
       if [ -f *.gz ]; then
             gunzip -c $genome > assembly.fasta
         else
-            ln $genome assembly.fasta
+            ln -s $genome assembly.fasta
       fi
       export AUGUSTUS_CONFIG_PATH=augustus_conf
       cp -r /augustus/config/ \$AUGUSTUS_CONFIG_PATH
       busco -c ${task.cpus} -l $busco_db -i assembly.fasta --out run_busco --mode geno
       mv run_busco/short_summary* ${sci_name}_${busco_db}_short_summary.txt
       mv run_busco/run_*/full_table.tsv ${sci_name}_${busco_db}_full_table.tsv
-      rm -rf \$AUGUSTUS_CONFIG_PATH run_busco/blast_db run_busco/run_*/augustus_output run_busco/run_*/blast_output run_busco/run_*/hmmer_output assembly.fasta
-      mv run_busco/run_${busco_db}/ run_${busco_db}
+
+      for ext in .faa .fna; do
+        seqFile=${sci_name}_${busco_db}_single_copy_busco_sequences\$ext
+        for file in run_busco/run_${busco_db}/busco_sequences/single_copy_busco_sequences/*\$ext; do \
+          echo \">\$(basename \${file%\$ext})\" >> \$seqFile; tail -n +2 \$file >> \$seqFile;
+        done
+      done
+      rm -rf run_busco/run_${busco_db}/ \$AUGUSTUS_CONFIG_PATH run_busco/blast_db run_busco/run_*/augustus_output run_busco/run_*/blast_output run_busco/run_*/hmmer_output assembly.fasta
       """
 }
 
