@@ -136,14 +136,15 @@ process map_reads {
       """
 }
 
-process create_blobDir {
+process add_hits_and_coverage {
     tag "${strain}"
+    publishDir "$params.outdir/btkDatasets", mode: 'copy'
 
     input:
-      tuple val(strain), path(assembly)
+      tuple val(strain), path(diamondHits), path(bam)
 
     output:
-      tuple val(strain), path("${strain}")
+      tuple val(strain), path("${btkdir}")
 
     script:
       """
@@ -152,27 +153,13 @@ process create_blobDir {
             --taxdump $params.taxdump \
             --taxid $params.taxid \
             $strain
-      """
-}
 
-process add_hits_and_coverage {
-    tag "${strain}"
-    publishDir "$params.outdir/btkDatasets", mode: 'copy'
-
-    input:
-      tuple val(strain), path(btkdir), path(diamondHits), path(bam)
-
-    output:
-      tuple val(strain), path("${btkdir}")
-
-    script:
-      """
       $params.blobtoolsPath add \
             --hits ${diamondHits} \
             --taxdump $params.taxdump \
             --taxrule $params.taxrule \
             --cov ${bam}=reads \
-            $btkdir
+            $strain
       """
 }
 
@@ -181,7 +168,6 @@ workflow {
     mask_assembly(assemblies) | chunk_assembly
     diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
     map_reads(datasets)
-    create_blobDir(assemblies)
-    add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
+    add_hits_and_coverage(unchunk_hits.out.join(map_reads.out))
 }
 
