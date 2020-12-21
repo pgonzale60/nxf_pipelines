@@ -142,9 +142,10 @@ process add_hits_and_coverage {
 
     input:
       tuple val(strain), path(diamondHits), path(bam)
+      tuple val(strain2), path(assembly)
 
     output:
-      tuple val(strain), path("${btkdir}")
+      tuple val(strain), path("${strain}")
 
     script:
       """
@@ -168,6 +169,6 @@ workflow {
     mask_assembly(assemblies) | chunk_assembly
     diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
     map_reads(datasets)
-    add_hits_and_coverage(unchunk_hits.out.join(map_reads.out))
+    add_hits_and_coverage(unchunk_hits.out.join(map_reads.out), assemblies)
 }
 
