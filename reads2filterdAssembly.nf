@@ -245,6 +245,31 @@ process add_hits_and_coverage {
       """
 }
 
+process filter_fasta {
+    tag "${strain}"
+    publishDir "$params.outdir/btkDatasets", mode: 'copy'
+    label 'btk'
+
+    input:
+      tuple val(strain), path(btkdir), path(bam), path(assembly), path(reads)
+
+    output:
+      tuple val(strain + "_filtered"), path("$filtered_assemFile"), emit: filtered_assem
+      tuple val(strain + "_filtered"), path("$filtered_readsFile"), emit: filtered_reads
+
+    script:
+    filtered_assemFile = assembly - ~/(\.fasta)(\.fa)/ + ".filtered.fasta"
+    filtered_readsFile = reads - ~/(\.fasta)(\.fa)/ + ".filtered.fasta"
+      """
+      $params.blobtoolsPath filter \
+        --param bestsumorder_superkingdom--Keys=Bacteria \
+        --param gc--Max=0.49 \
+        --fasta $assembly \
+        --fastq $reads
+        --cov $bam \
+        $btkdir
+      """
+}
 
 workflow {
     jellyfish(reads) | genomescope
@@ -253,4 +278,7 @@ workflow {
     map_reads(reads.join(hifiasm.out))
     create_blobDir(hifiasm.out)
     add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
+    filter_fasta(add_hits_and_coverage.out.join(hifiasm.out.join(map_reads.out.join(reads))))
+    jellyfish(filter_fasta.out.filtered_reads) | genomescope
+    hifiasm(filter_fasta.out.filtered_reads)
 }
