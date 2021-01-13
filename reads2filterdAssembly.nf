@@ -251,6 +251,6 @@ workflow {
     hifiasm(reads) | mask_assembly | chunk_assembly
     diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
     map_reads(reads.join(hifiasm.out))
-    create_blobDir(assemblies)
+    create_blobDir(hifiasm.out)
     add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
 }
