@@ -27,7 +27,7 @@ params.kmer = '31'
 
 dmnd_db = Channel.fromPath(params.dmnd_db, checkIfExists: true).collect()
 reads = Channel.fromPath(params.reads, checkIfExists: true)
-                .map { file -> tuple(file.Name - ~/.ccs.fasta.gz/, file) }
+                .map { file -> tuple(file.Name - ~/(\.ccs)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
 
 process jellyfish {
     tag "${strain}"
