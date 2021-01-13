@@ -254,12 +254,13 @@ process filter_fasta {
       tuple val(strain), path(btkdir), path(bam), path(assembly), path(reads)
 
     output:
-      tuple val(strain + "_filtered"), path("$filtered_assemFile"), emit: filtered_assem
-      tuple val(strain + "_filtered"), path("$filtered_readsFile"), emit: filtered_reads
+      tuple val($strainName), path("$filtered_assemFile"), emit: filtered_assem
+      tuple val($strainName), path("$filtered_readsFile"), emit: filtered_reads
 
     script:
     filtered_assemFile = assembly - ~/(\.fasta)(\.fa)/ + ".filtered.fasta"
     filtered_readsFile = reads - ~/(\.fasta)(\.fa)/ + ".filtered.fasta"
+    strainName = strain + "_filtered"
       """
       $params.blobtoolsPath filter \
         --param bestsumorder_superkingdom--Keys=Bacteria \
