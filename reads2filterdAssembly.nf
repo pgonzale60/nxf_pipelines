@@ -280,6 +280,4 @@ workflow {
     create_blobDir(hifiasm.out)
     add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
     filter_fasta(add_hits_and_coverage.out.join(hifiasm.out.join(map_reads.out.join(reads))))
-    jellyfish(filter_fasta.out.filtered_reads) | genomescope
-    hifiasm(filter_fasta.out.filtered_reads)
 }
