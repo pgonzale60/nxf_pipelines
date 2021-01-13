@@ -266,7 +266,7 @@ process filter_fasta {
         --param bestsumorder_superkingdom--Keys=Bacteria \
         --param gc--Max=0.49 \
         --fasta $assembly \
-        --fastq $reads
+        --fastq $reads \
         --cov $bam \
         $btkdir
       """
