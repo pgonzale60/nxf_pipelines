@@ -251,7 +251,7 @@ process filter_fasta {
     label 'btk'
 
     input:
-      tuple val(strain), path(btkdir), path(bam), path(assembly), path(reads)
+      tuple val(strain), path(btkdir), path(bam), path(reads), path(assembly)
 
     output:
       tuple val($strainName), path("$filtered_assemFile"), emit: filtered_assem
