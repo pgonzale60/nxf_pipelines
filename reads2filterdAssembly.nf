@@ -279,5 +279,5 @@ workflow {
     map_reads(reads.join(hifiasm.out))
     create_blobDir(hifiasm.out)
     add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
-    filter_fasta(add_hits_and_coverage.out.join(hifiasm.out.join(map_reads.out.join(reads))))
+    filter_fasta(add_hits_and_coverage.out.join(map_reads.out.join(hifiasm.out.join(reads))))
 }
