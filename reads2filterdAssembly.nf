@@ -203,6 +203,24 @@ process map_reads {
       """
 }
 
+process kat_plot {
+    tag "${strain}"
+    label 'big_parallelizable'
+    label 'btk'
+
+    input:
+      tuple val(strain), path(reads), path(assembly)
+
+    output:
+      tuple val(strain), path("kat-comp-main.mx")
+
+    script:
+      """
+      kat comp -t ${task.cpus} $reads $assembly
+      kat plot spectra-cn kat-comp-main.mx
+      """
+}
+
 process create_blobDir {
     tag "${strain}"
     label 'btk'
@@ -269,12 +287,12 @@ process btk_static_images {
             --format png --format svg \
             --out $btkdir \
             $btkdir
-      params.blobtoolsPath view \
+      $params.blobtoolsPath view \
             --view cumulative \
             --format png --format svg \
             --out $btkdir \
             $btkdir
-      params.blobtoolsPath view \
+      $params.blobtoolsPath view \
             --view snail \
             --format png --format svg \
             --out $btkdir \
