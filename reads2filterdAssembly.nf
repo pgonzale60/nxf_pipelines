@@ -32,6 +32,7 @@ reads = Channel.fromPath(params.reads, checkIfExists: true)
 process jellyfish {
     tag "${strain}"
     label 'big_parallelizable'
+    label 'big_mem'
     label 'kmer'
 
     input:
@@ -247,19 +248,20 @@ process add_hits_and_coverage {
 
 process filter_fasta {
     tag "${strain}"
-    publishDir "$params.outdir/btkDatasets", mode: 'copy'
+    publishDir "$params.outdir/filteredData", mode: 'copy'
     label 'btk'
 
     input:
-      tuple val(strain), path(btkdir), path(bam), path(reads), path(assembly)
+      tuple val(strain), path(btkdir), path(bam), path(assembly), path(reads)
 
     output:
-      tuple val($strainName), path("$filtered_assemFile"), emit: filtered_assem
-      tuple val($strainName), path("$filtered_readsFile"), emit: filtered_reads
+      tuple val(strainName), path("$filtered_assemFile"), emit: filtered_assem
+      tuple val(strainName), path("$filtered_readsFile"), emit: filtered_reads
 
     script:
-    filtered_assemFile = assembly - ~/(\.fasta)(\.fa)/ + ".filtered.fasta"
-    filtered_readsFile = reads - ~/(\.fasta)(\.fa)/ + ".filtered.fasta"
+    filtered_assemFile = assembly.baseName - ~/(\.fasta)?(\.fa)?$/ + ".filtered.fasta"
+    filtered_readsFile = reads.baseName - ~/(\.fasta)?(\.fa)?(\.gz)?$/ + ".filtered.fasta.gz"
+    btk_fltrd_readsFile = reads.baseName - ~/(\.gz)?$/ + ".filtered.gz"
     strainName = strain + "_filtered"
       """
       $params.blobtoolsPath filter \
@@ -269,15 +271,39 @@ process filter_fasta {
         --fastq $reads \
         --cov $bam \
         $btkdir
+      mv $btk_fltrd_readsFile $filtered_readsFile
       """
 }
 
+
+workflow raw_asses {
+    take: reads
+    main:
+        jellyfish(reads) | genomescope
+        hifiasm(reads) | mask_assembly | chunk_assembly
+        diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
+        map_reads(reads.join(hifiasm.out))
+        create_blobDir(hifiasm.out)
+        add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
+        filter_fasta(add_hits_and_coverage.out.join(map_reads.out.join(hifiasm.out.join(reads))))
+    emit:
+        filter_fasta.out.filtered_reads
+}
+
+workflow fltd_asses {
+    take: reads
+    main:
+        jellyfish(reads) | genomescope
+        hifiasm(reads) | mask_assembly | chunk_assembly
+        diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
+        map_reads(reads.join(hifiasm.out))
+        create_blobDir(hifiasm.out)
+        add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
+    emit:
+        add_hits_and_coverage.out
+}
+
 workflow {
-    jellyfish(reads) | genomescope
-    hifiasm(reads) | mask_assembly | chunk_assembly
-    diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
-    map_reads(reads.join(hifiasm.out))
-    create_blobDir(hifiasm.out)
-    add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
-    filter_fasta(add_hits_and_coverage.out.join(map_reads.out.join(hifiasm.out.join(reads))))
+    raw_asses(reads)
+    fltd_asses(raw_asses.out)
 }
