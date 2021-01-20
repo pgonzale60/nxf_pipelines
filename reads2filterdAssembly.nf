@@ -298,7 +298,7 @@ process filter_fasta {
     strainName = strain + "_filtered"
     btk_fltrd_assemFile = assembly.baseName - ~/(\.fasta)?(\.fa)?$/ + ".filtered.fasta"
     btk_fltrd_readsFile = reads.baseName - ~/(\.gz)?$/ + ".filtered.gz"
-    filtered_assemFile = strainName + ".fasta"
+    filtered_assemFile = strainName + ".hifiasm.fasta"
     filtered_readsFile = strainName + ".ccs.fasta.gz"
       """
       $params.blobtoolsPath filter \
