@@ -226,7 +226,6 @@ echo \$PATH
 
 process add_hits_and_coverage {
     tag "${strain}"
-    publishDir "$params.outdir/btkDatasets", mode: 'copy'
     label 'btk'
 
     input:
@@ -242,6 +241,43 @@ process add_hits_and_coverage {
             --taxdump $params.taxdump \
             --taxrule $params.taxrule \
             --cov ${bam}=reads \
+            $btkdir
+
+      $params.blobtoolsPath filter \
+            --summary $btkdir/summary.json \
+            $btkdir
+      """
+}
+
+process btk_static_images {
+    tag "${strain}"
+    publishDir "$params.outdir/btkDatasets", mode: 'copy'
+    label 'btk'
+
+    input:
+      tuple val(strain), path(btkdir)
+
+    output:
+      tuple val(strain), path("${btkdir}")
+
+    script:
+      """
+      $params.blobtoolsPath view \
+            --view blob \
+            --param plotShape=circle \
+            --param bestsumorder_phylum--Order=no-hit%2CNematoda%2CProteobacteria%2CActinobacteria \
+            --format png --format svg \
+            --out $btkdir \
+            $btkdir
+      params.blobtoolsPath view \
+            --view cumulative \
+            --format png --format svg \
+            --out $btkdir \
+            $btkdir
+      params.blobtoolsPath view \
+            --view snail \
+            --format png --format svg \
+            --out $btkdir \
             $btkdir
       """
 }
@@ -286,7 +322,7 @@ workflow raw_asses {
         diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
         map_reads(reads.join(hifiasm.out))
         create_blobDir(hifiasm.out)
-        add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
+        add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out))) | btk_static_images
         filter_fasta(add_hits_and_coverage.out.join(map_reads.out.join(hifiasm.out.join(reads))))
     emit:
         filter_fasta.out.filtered_reads
@@ -300,9 +336,9 @@ workflow fltd_asses {
         diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
         map_reads(reads.join(hifiasm.out))
         create_blobDir(hifiasm.out)
-        add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
+        add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out))) | btk_static_images
     emit:
-        add_hits_and_coverage.out
+        btk_static_images.out
 }
 
 workflow {
