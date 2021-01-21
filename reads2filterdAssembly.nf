@@ -333,10 +333,6 @@ process btk_static_images {
             --view cumulative \
             --format png --format svg \
             $btkdir
-      $params.blobtoolsPath view \
-            --view snail \
-            --format png --format svg \
-            $btkdir
       mv *svg *png $btkdir
       """
 }
