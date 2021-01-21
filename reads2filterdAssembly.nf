@@ -290,18 +290,16 @@ process btk_static_images {
             --param plotShape=circle \
             --param bestsumorder_phylum--Order=no-hit%2CNematoda%2CProteobacteria%2CActinobacteria \
             --format png --format svg \
-            --out $btkdir \
             $btkdir
       $params.blobtoolsPath view \
             --view cumulative \
             --format png --format svg \
-            --out $btkdir \
             $btkdir
       $params.blobtoolsPath view \
             --view snail \
             --format png --format svg \
-            --out $btkdir \
             $btkdir
+      mv *svg *png $btkdir
       """
 }
 
