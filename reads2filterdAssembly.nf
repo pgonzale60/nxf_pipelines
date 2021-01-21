@@ -13,7 +13,8 @@ params.taxid = 2613844
 params.taxdump = "${params.btkPath}/taxdump/"
 params.taxrule = "bestsumorder"
 params.kmer = '31'
-
+params.odb = 'lepidoptera_odb10,nematoda_odb10'
+params.busco_downloads = './busco_downloads'
 
 
 
@@ -75,8 +76,8 @@ process genomescope {
       awk 'BEGIN{FIELDWIDTHS=\"30 18 18\";OFS=\"\\t\"}{if(\$3){print \$3}}' ${strain}_gscope/summary.txt | sed -n 's/ *//g; s/%//; s/,//g; s/bp//; /max/!p;' > tmp
       sed 's/kcov://' kcov.txt >> tmp
 
-      printf 'Heterozygosity\\tHaploid Length\\tRepeat Length\\tUnique Length\\tModel Fit\\tRead Error Rate\\tk-coverage\\n' > tmp2
-      cat tmp | tr \$'\\n' \$'\\t' | sed 's/\\t\$/\\n/' >> ${strain}_gscope/${strain}_gmodel.tsv
+      printf 'Heterozygosity\\tHaploid Length\\tRepeat Length\\tUnique Length\\tModel Fit\\tRead Error Rate\\tk-coverage\\n' > ${strain}_gscope/${strain}_${params.kmer}_gmodel.tsv
+      cat tmp | tr \$'\\n' \$'\\t' | sed 's/\\t\$/\\n/' >> ${strain}_gscope/${strain}_${params.kmer}_gmodel.tsv
       """
 }
 
@@ -96,6 +97,41 @@ process hifiasm {
       """
       /software/team301/hifiasm/hifiasm $reads -o $strain -t ${task.cpus}
       awk '/^S/{print ">"\$2"\\n"\$3}' ${strain}.p_ctg.gfa | fold > ${strain}.hifiasm.fasta
+      """
+}
+
+process busco {
+    tag "${strain}_${busco_db}"
+    publishDir "$params.outdir/${strain}_${busco_db}", mode: 'link'
+
+    input:
+      tuple val(strain), path(genome), val(busco_db)
+      path busco_db_dir
+
+    output:
+      path "${strain}_${busco_db}_single_copy_busco_sequences*"
+      path "${strain}_${busco_db}_full_table.tsv", emit: busco_table
+      path "${strain}_${busco_db}_short_summary.txt"
+
+    script:
+      """
+      if [ -f *.gz ]; then
+            gunzip -c $genome > assembly.fasta
+        else
+            ln $genome assembly.fasta
+      fi
+      export AUGUSTUS_CONFIG_PATH=augustus_conf
+      cp -r /augustus/config/ \$AUGUSTUS_CONFIG_PATH
+      busco -c ${task.cpus} -l $busco_db -i assembly.fasta --out run_busco --mode geno
+      mv run_busco/short_summary* ${strain}_${busco_db}_short_summary.txt
+      mv run_busco/run_*/full_table.tsv ${strain}_${busco_db}_full_table.tsv
+      for ext in .faa .fna; do
+        seqFile=${strain}_${busco_db}_single_copy_busco_sequences\$ext
+        for file in run_busco/run_nematoda_odb10/busco_sequences/single_copy_busco_sequences/*\$ext; do
+          echo \">\$(basename \${file%\$ext})\" >> \$seqFile; tail -n +2 \$file >> \$seqFile;
+        done
+      done
+      rm -rf \$AUGUSTUS_CONFIG_PATH run_busco/ assembly.fasta
       """
 }
 
