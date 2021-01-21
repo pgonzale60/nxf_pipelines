@@ -70,8 +70,8 @@ process genomescope {
       mkdir -p ${strain}_gscope
       Rscript /kmer_wd/genomescope.R $histo $params.kmer 150 ${strain}_gscope \
       | tail -n +2 \
-      | sed \'s/Model converged //; s/ /\\n/g\' > \
-      | grep kcov > kcov.txt
+      | sed \'s/Model converged //; s/ /\\n/g\' \
+      | { grep kcov || true; } > kcov.txt
       awk 'BEGIN{FIELDWIDTHS=\"30 18 18\";OFS=\"\\t\"}{if(\$3){print \$3}}' ../../../../batch2/analyses/qualitymetrics/filtrd/miniBtk-20210116/genomescope/YEW1.ccs.filtered_genomescope/summary.txt | sed -n 's/ *//g; s/%//; s/,//g; s/bp//; /max/!p;' > tmp
       sed 's/kcov://' kcov.txt >> tmp
 
