@@ -13,8 +13,8 @@ params.taxid = 2613844
 params.taxdump = "${params.btkPath}/taxdump/"
 params.taxrule = "bestsumorder"
 params.kmer = '31'
-params.odb = 'lepidoptera_odb10,nematoda_odb10'
-params.busco_downloads = './busco_downloads'
+params.odb = 'nematoda_odb10'
+params.busco_downloads = '/lustre/scratch116/tol/teams/team301/dbs/busco_2020_08/busco_downloads/'
 
 
 
@@ -27,13 +27,14 @@ params.busco_downloads = './busco_downloads'
 // zcat dbs/custom/*.faa.gz | diamond makedb -p 8 -d custom --taxonmap prot.accession2taxid.gz --taxonnodes dbs/nodes.dmp
 
 dmnd_db = Channel.fromPath(params.dmnd_db, checkIfExists: true).collect()
+busco_db_dir = Channel.fromPath(params.busco_downloads, checkIfExists: true, type: 'dir').collect()
+busco_dbs = Channel.of(params.odb.split(','))
+
 reads = Channel.fromPath(params.reads, checkIfExists: true)
                 .map { file -> tuple(file.Name - ~/(\.ccs)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
 
 process jellyfish {
     tag "${strain}"
-    label 'big_parallelizable'
-    label 'big_mem'
     label 'kmer'
 
     input:
@@ -102,16 +103,17 @@ process hifiasm {
 
 process busco {
     tag "${strain}_${busco_db}"
-    publishDir "$params.outdir/${strain}_${busco_db}", mode: 'link'
+    publishDir "$params.outdir/busco/${strain}_${busco_db}", mode: 'copy'
+    label 'big_parallelizable'
 
     input:
       tuple val(strain), path(genome), val(busco_db)
       path busco_db_dir
 
     output:
-      path "${strain}_${busco_db}_single_copy_busco_sequences*"
-      path "${strain}_${busco_db}_full_table.tsv", emit: busco_table
-      path "${strain}_${busco_db}_short_summary.txt"
+      path("${strain}_${busco_db}_single_copy_busco_sequences*")
+      tuple val(strain), path("${strain}_${busco_db}_full_table.tsv"), emit: busco_table
+      path("${strain}_${busco_db}_short_summary.txt")
 
     script:
       """
@@ -182,7 +184,6 @@ process chunk_assembly {
 
 process diamond_search {
     tag "${strain}"
-    label 'big_parallelizable'
     label 'btk'
 
     input:
@@ -283,12 +284,12 @@ echo \$PATH
       """
 }
 
-process add_hits_and_coverage {
+process add_hits_coverage_and_busco {
     tag "${strain}"
     label 'btk'
 
     input:
-      tuple val(strain), path(btkdir), path(diamondHits), path(bam)
+      tuple val(strain), path(btkdir), path(diamondHits), path(bam), path(busco)
 
     output:
       tuple val(strain), path("${btkdir}")
@@ -296,10 +297,11 @@ process add_hits_and_coverage {
     script:
       """
       $params.blobtoolsPath add \
-            --hits ${diamondHits} \
+            --hits $diamondHits \
             --taxdump $params.taxdump \
             --taxrule $params.taxrule \
             --cov ${bam}=reads \
+            --busco $busco \
             $btkdir
 
       $params.blobtoolsPath filter \
@@ -376,12 +378,13 @@ workflow raw_asses {
     main:
         jellyfish(reads) | genomescope
         hifiasm(reads) | mask_assembly | chunk_assembly
+        busco(hifiasm.out.combine(busco_dbs), busco_db_dir)
         diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
         map_reads(reads.join(hifiasm.out))
         kat_plot(reads.join(hifiasm.out))
         create_blobDir(hifiasm.out)
-        add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out))) | btk_static_images
-        filter_fasta(add_hits_and_coverage.out.join(map_reads.out.join(hifiasm.out.join(reads))))
+        add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table)))) | btk_static_images
+        filter_fasta(add_hits_coverage_and_busco.out.join(map_reads.out.join(hifiasm.out.join(reads))))
     emit:
         filter_fasta.out.filtered_reads
 }
@@ -391,11 +394,12 @@ workflow fltd_asses {
     main:
         jellyfish(reads) | genomescope
         hifiasm(reads) | mask_assembly | chunk_assembly
+        busco(hifiasm.out.combine(busco_dbs), busco_db_dir)
         diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
         map_reads(reads.join(hifiasm.out))
         kat_plot(reads.join(hifiasm.out))
         create_blobDir(hifiasm.out)
-        add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out))) | btk_static_images
+        add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table)))) | btk_static_images
     emit:
         btk_static_images.out
 }
