@@ -205,6 +205,7 @@ process map_reads {
 
 process kat_plot {
     tag "${strain}"
+    publishDir "$params.outdir/kat", mode: 'copy'
     label 'big_parallelizable'
     label 'btk'
 
@@ -212,12 +213,11 @@ process kat_plot {
       tuple val(strain), path(reads), path(assembly)
 
     output:
-      tuple val(strain), path("kat-comp-main.mx")
+      tuple val(strain), path("${strain}-main.mx.spectra-cn.png")
 
     script:
       """
-      kat comp -t ${task.cpus} $reads $assembly
-      kat plot spectra-cn kat-comp-main.mx
+      kat comp -t ${task.cpus} -o $strain $reads $assembly
       """
 }
 
@@ -353,6 +353,7 @@ workflow fltd_asses {
         hifiasm(reads) | mask_assembly | chunk_assembly
         diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
         map_reads(reads.join(hifiasm.out))
+        kat_plot(reads.join(hifiasm.out))
         create_blobDir(hifiasm.out)
         add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out))) | btk_static_images
     emit:
