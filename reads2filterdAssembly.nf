@@ -63,14 +63,20 @@ process genomescope {
     input:
       tuple val(strain), path(histo)
     output:
-      path("${strain}_genomescope")
+      path("${strain}_gscope")
+      
     script:
       """
-      mkdir -p ${strain}_genomescope
-      Rscript /kmer_wd/genomescope.R $histo $params.kmer 150 ${strain}_genomescope \
+      mkdir -p ${strain}_gscope
+      Rscript /kmer_wd/genomescope.R $histo $params.kmer 150 ${strain}_gscope \
       | tail -n +2 \
       | sed \'s/Model converged //; s/ /\\n/g\' > \
-      ${strain}_genomescope/${strain}_gmodel.txt
+      | grep kcov > kcov.txt
+      awk 'BEGIN{FIELDWIDTHS=\"30 18 18\";OFS=\"\\t\"}{if(\$3){print \$3}}' ../../../../batch2/analyses/qualitymetrics/filtrd/miniBtk-20210116/genomescope/YEW1.ccs.filtered_genomescope/summary.txt | sed -n 's/ *//g; s/%//; s/,//g; s/bp//; /max/!p;' > tmp
+      sed 's/kcov://' kcov.txt >> tmp
+
+      printf 'Heterozygosity\\tHaploid Length\\tRepeat Length\\tUnique Length\\tModel Fit\\tRead Error Rate\\tk-coverage\\n' > tmp2
+      cat tmp | tr \$'\\n' \$'\\t' | sed 's/\\t\$/\\n/' >> ${strain}_gscope/${strain}_gmodel.tsv
       """
 }
 
@@ -166,7 +172,6 @@ process diamond_search {
 
 process unchunk_hits {
     tag "${strain}"
-    publishDir "$params.outdir/", mode: 'copy'
     label 'btk'
 
     input:
@@ -213,7 +218,7 @@ process kat_plot {
       tuple val(strain), path(reads), path(assembly)
 
     output:
-      tuple val(strain), path("${strain}-main.mx.spectra-cn.png")
+      tuple val(strain), path("${strain}-main.mx.*")
 
     script:
       """
@@ -339,6 +344,7 @@ workflow raw_asses {
         hifiasm(reads) | mask_assembly | chunk_assembly
         diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
         map_reads(reads.join(hifiasm.out))
+        kat_plot(reads.join(hifiasm.out))
         create_blobDir(hifiasm.out)
         add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out))) | btk_static_images
         filter_fasta(add_hits_and_coverage.out.join(map_reads.out.join(hifiasm.out.join(reads))))
