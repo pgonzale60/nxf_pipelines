@@ -642,9 +642,7 @@ if(length(args) < 4) {
     ## Figure out which kmers to exclude, if any
     if(maxCovGenomeLen == -1){
         maxCovIndex <- length(kmer_prof[,1])
-    }
-    else
-    {
+    }    else                {
         ## Figure out the index we should use for this coverage length
         x <- kmer_prof[,1]
         maxCovIndex <- length(x[x<=maxCovGenomeLen])
