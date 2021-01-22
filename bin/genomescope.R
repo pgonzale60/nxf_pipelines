@@ -619,7 +619,7 @@ if(length(args) < 4) {
 
 	dir.create(foldername, showWarnings=FALSE)
 
-	kmer_prof <- read.csv(file=histfile,sep=" ", header=FALSE) 
+	kmer_prof <- read.csv(file=histfile,sep=" ", header=FALSE, comment.char = "#") 
 
     minkmerx = 1;
     if (kmer_prof[1,1] == 0) {
