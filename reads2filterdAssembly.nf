@@ -33,52 +33,40 @@ busco_dbs = Channel.of(params.odb.split(','))
 reads = Channel.fromPath(params.reads, checkIfExists: true)
                 .map { file -> tuple(file.Name - ~/(\.ccs)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
 
-process jellyfish {
+
+
+process kmer_hist {
     tag "${strain}"
-    label 'kmer'
+    publishDir "$params.outdir/kat"
+    label 'btk'
 
     input:
       tuple val(strain), path(reads)
     output:
-      tuple val(strain), path("${strain}.histo")
+      tuple val(strain), path("${strain}.hist"), emit: kmer_counts
+      path("${strain}.hist*{json,png}")
+
+
     script:
       """
-      if [ -f *.gz ]; then
-            jellyfish count -C -m $params.kmer -s 200M \
-            -t ${task.cpus} \
-            <(zcat $reads)
-        else
-            jellyfish count -C -m $params.kmer -s 200M \
-            -t ${task.cpus} \
-            $reads
-        fi
-      jellyfish histo -t ${task.cpus} mer_counts.jf > ${strain}.histo
-      rm mer_counts.jf
+      jellyfish histo -t ${task.cpus} -o ${strain}.hist $reads
       """
 }
+
 
 process genomescope {
     tag "${strain}"
     publishDir "$params.outdir/genomescope"
-    label 'kmer'
+    label 'btk'
 
     input:
       tuple val(strain), path(histo)
     output:
-      path("${strain}_gscope")
+      path("${strain}_k${params.kmer}_gscope")
       
     script:
       """
-      mkdir -p ${strain}_gscope
-      Rscript /kmer_wd/genomescope.R $histo $params.kmer 150 ${strain}_gscope \
-      | tail -n +2 \
-      | sed \'s/Model converged //; s/ /\\n/g\' \
-      | { grep kcov || true; } > kcov.txt
-      awk 'BEGIN{FIELDWIDTHS=\"30 18 18\";OFS=\"\\t\"}{if(\$3){print \$3}}' ${strain}_gscope/summary.txt | sed -n 's/ *//g; s/%//; s/,//g; s/bp//; /max/!p;' > tmp
-      sed 's/kcov://' kcov.txt >> tmp
-
-      printf 'Heterozygosity\\tHaploid Length\\tRepeat Length\\tUnique Length\\tModel Fit\\tRead Error Rate\\tk-coverage\\n' > ${strain}_gscope/${strain}_${params.kmer}_gmodel.tsv
-      cat tmp | tr \$'\\n' \$'\\t' | sed 's/\\t\$/\\n/' >> ${strain}_gscope/${strain}_${params.kmer}_gmodel.tsv
+      genomescope.R $histo $params.kmer 150 ${strain}_k${params.kmer}_gscope
       """
 }
 
@@ -372,7 +360,8 @@ process filter_fasta {
 workflow raw_asses {
     take: reads
     main:
-        jellyfish(reads) | genomescope
+        kmer_hist(reads)
+        genomescope(kmer_hist.out.kmer_counts)
         hifiasm(reads) | mask_assembly | chunk_assembly
         busco(hifiasm.out.combine(busco_dbs), busco_db_dir)
         diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
@@ -388,7 +377,8 @@ workflow raw_asses {
 workflow fltd_asses {
     take: reads
     main:
-        jellyfish(reads) | genomescope
+        kmer_hist(reads)
+        genomescope(kmer_hist.out.kmer_counts)
         hifiasm(reads) | mask_assembly | chunk_assembly
         busco(hifiasm.out.combine(busco_dbs), busco_db_dir)
         diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
@@ -397,7 +387,7 @@ workflow fltd_asses {
         create_blobDir(hifiasm.out)
         add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table))))
     emit:
-        btk_static_images.out
+        add_hits_coverage_and_busco.out
 }
 
 workflow {
