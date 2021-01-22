@@ -553,6 +553,7 @@ report_results<-function(kmer_hist,kmer_hist_orig, k, container, foldername)
 
     ## Write key values to summary file
 	summaryFile <- paste(foldername,"/summary.txt",sep="")
+    summaryTsvFile <- paste(foldername,"/summary.tsv",sep="")
 	
     format_column_1 = "%-30s"
     format_column_2 = "%-18s"
@@ -576,6 +577,12 @@ report_results<-function(kmer_hist,kmer_hist_orig, k, container, foldername)
     	cat(paste("Model RSSE (Full Model) = ",   model_fit_full[1],   " [", model_fit_full[2],   ", ", model_fit_full[3],   "]", sep=""), file=summaryFile, sep="\n", append=TRUE)
     	cat(paste("Model RSSE (Unique Model) = ", model_fit_unique[1], " [", model_fit_unique[2], ", ", model_fit_unique[3], "]", sep=""), file=summaryFile, sep="\n", append=TRUE)	
     }
+
+    # In tsv format
+    cat(paste("property", "k", "Heterozygosity", "Genome Haploid Length", "Genome Repeat Length", "Genome Unique Length", "Model Fit", "Read Error Rate", sep="\t"),                file=summaryTsvFile, sep="\n") 
+    cat(paste("min", k, signif(het[2], 6), round(total_len[2]), round(repeat_len[2]), round(unique_len[2]), signif(model_fit_allscore[1], 6), signif(error_rate[1], 6),  sep="\t"), file=summaryTsvFile, sep="\n", append=TRUE)
+    cat(paste("max", k, signif(het[1], 6), round(total_len[1]), round(repeat_len[1]), round(unique_len[1]), signif(model_fit_fullscore[1], 6), signif(error_rate[2], 6), sep="\t"), file=summaryTsvFile, sep="\n", append=TRUE)
+
     ## Finalize the progress
     progressFilename=paste(foldername,"/progress.txt",sep="")
 	cat(model_status, file=progressFilename, sep="\n", append=TRUE)
