@@ -286,6 +286,7 @@ echo \$PATH
 
 process add_hits_coverage_and_busco {
     tag "${strain}"
+    publishDir "$params.outdir/btkDatasets", mode: 'copy'
     label 'btk'
 
     input:
@@ -312,7 +313,6 @@ process add_hits_coverage_and_busco {
 
 process btk_static_images {
     tag "${strain}"
-    publishDir "$params.outdir/btkDatasets", mode: 'copy'
     label 'btk'
 
     input:
@@ -379,7 +379,7 @@ workflow raw_asses {
         map_reads(reads.join(hifiasm.out))
         kat_plot(reads.join(hifiasm.out))
         create_blobDir(hifiasm.out)
-        add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table)))) | btk_static_images
+        add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table))))
         filter_fasta(add_hits_coverage_and_busco.out.join(map_reads.out.join(hifiasm.out.join(reads))))
     emit:
         filter_fasta.out.filtered_reads
@@ -395,7 +395,7 @@ workflow fltd_asses {
         map_reads(reads.join(hifiasm.out))
         kat_plot(reads.join(hifiasm.out))
         create_blobDir(hifiasm.out)
-        add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table)))) | btk_static_images
+        add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table))))
     emit:
         btk_static_images.out
 }
