@@ -49,7 +49,7 @@ process kmer_hist {
 
     script:
       """
-      jellyfish histo -t ${task.cpus} -o ${strain}.hist $reads
+      kat hist -o ${strain}.hist -t ${task.cpus} -m ${params.kmer} $reads
       """
 }
 
