@@ -37,7 +37,7 @@ reads = Channel.fromPath(params.reads, checkIfExists: true)
 
 process kmer_hist {
     tag "${strain}"
-    publishDir "$params.outdir/kat"
+    publishDir "$params.outdir/kat", mode: 'copy'
     label 'btk'
 
     input:
@@ -56,7 +56,7 @@ process kmer_hist {
 
 process genomescope {
     tag "${strain}"
-    publishDir "$params.outdir/genomescope"
+    publishDir "$params.outdir/genomescope", mode: 'copy'
     label 'btk'
 
     input:
