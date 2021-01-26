@@ -3,7 +3,8 @@
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-from itertools import groupby 
+from itertools import groupby
+import math 
 import matplotlib
 import argparse
 import gzip
@@ -23,7 +24,7 @@ def length_stats(ndLengths):
     seqYield = np.sum(ndLengths)
     nSeqs = ndLengths.size
     [n50, n95, n100] = np.quantile(ndLengths, [.5,.95, 1])
-    return seqYield, nSeqs, n50, n95, n100
+    return seqYield, nSeqs, math.ceil(n50), math.ceil(n95), math.ceil(n100)
 
 def plot_length_dist(ndLengths, outfile, n50, n95, n100):
     plt.ioff()
