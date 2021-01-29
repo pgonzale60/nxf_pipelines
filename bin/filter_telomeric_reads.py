@@ -16,7 +16,6 @@ options:
                             [Default: telomericReads.fasta.gz]
 """
 
-import pyfastx
 import gzip
 from itertools import groupby
 from docopt import docopt
@@ -24,11 +23,11 @@ from subprocess import Popen, PIPE
 import shlex
 
 __author__ = "Richard Challis, Pablo Manuel Gonzalez de la Rosa"
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 def read_fasta(fastafile):
     """Read fasta"""
-    cmd = "zcat %s" % fastafile
+    cmd = "pigz -dc %s" % fastafile
     # TODO: read gzipped files if needed
     # cmd = "pigz -dc %s" % fastafile
     title = ''
@@ -38,7 +37,7 @@ def read_fasta(fastafile):
         for header in faiter:
             title = header.__next__()[1:].strip().split()[0]
             seq = ''.join(map(lambda s: s.strip(), faiter.__next__()))
-    yield {'title': title, 'seq': seq}
+            yield {'title': title, 'seq': seq}
 
 def get_start_and_end_of_sequence(seq, size):
     return seq[0:size] + ("N" * size) + seq[-size::]
@@ -62,12 +61,13 @@ if __name__ == "__main__":
 
     telomeric_reads = ''
     for seq in read_fasta(args['--in']):
+        print(seq['title'])
         if len(seq['seq']) >= 2 * supermotif_size:
-            start_and_end_seq = get_start_and_end_of_sequence(seq['seq'])
+            start_and_end_seq = get_start_and_end_of_sequence(seq['seq'], supermotif_size)
             if supermotif in start_and_end_seq or rev_supermotif in start_and_end_seq:
                 telomeric_reads += ">%s\n" % seq['title']
                 telomeric_reads += "%s\n" % seq['seq']
     
     outfile = args['--out']
-    with gzip.open(outfile, 'w') as ofh:
+    with gzip.open(outfile, 'wt') as ofh:
         ofh.writelines(telomeric_reads)
