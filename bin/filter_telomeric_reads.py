@@ -27,7 +27,7 @@ from subprocess import Popen, PIPE
 import shlex
 
 __author__ = "Richard Challis, Pablo Manuel Gonzalez de la Rosa"
-__version__ = '0.2.2'
+__version__ = '0.2.0'
 
 def read_fasta(fastafile):
     """Read fasta"""
