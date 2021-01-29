@@ -13,7 +13,8 @@ params.taxid = 2613844
 params.taxdump = "${params.btkPath}/taxdump/"
 params.taxrule = "bestsumorder"
 params.kmer = '31'
-
+params.odb = 'nematoda_odb10'
+params.busco_downloads = '/lustre/scratch116/tol/teams/team301/dbs/busco_2020_08/busco_downloads/'
 
 
 
@@ -26,50 +27,46 @@ params.kmer = '31'
 // zcat dbs/custom/*.faa.gz | diamond makedb -p 8 -d custom --taxonmap prot.accession2taxid.gz --taxonnodes dbs/nodes.dmp
 
 dmnd_db = Channel.fromPath(params.dmnd_db, checkIfExists: true).collect()
+busco_db_dir = Channel.fromPath(params.busco_downloads, checkIfExists: true, type: 'dir').collect()
+busco_dbs = Channel.of(params.odb.split(','))
+
 reads = Channel.fromPath(params.reads, checkIfExists: true)
                 .map { file -> tuple(file.Name - ~/(\.ccs)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
 
-process jellyfish {
+
+
+process kmer_hist {
     tag "${strain}"
-    label 'big_parallelizable'
-    label 'kmer'
+    publishDir "$params.outdir/kat", mode: 'copy'
+    label 'btk'
 
     input:
       tuple val(strain), path(reads)
     output:
-      tuple val(strain), path("${strain}.histo")
+      tuple val(strain), path("${strain}.hist"), emit: kmer_counts
+      path("${strain}.hist*{json,png}")
+
+
     script:
       """
-      if [ -f *.gz ]; then
-            jellyfish count -C -m $params.kmer -s 200M \
-            -t ${task.cpus} \
-            <(zcat $reads)
-        else
-            jellyfish count -C -m $params.kmer -s 200M \
-            -t ${task.cpus} \
-            $reads
-        fi
-      jellyfish histo -t ${task.cpus} mer_counts.jf > ${strain}.histo
-      rm mer_counts.jf
+      kat hist -o ${strain}.hist -t ${task.cpus} -m ${params.kmer} $reads
       """
 }
 
+
 process genomescope {
     tag "${strain}"
-    publishDir "$params.outdir/genomescope"
-    label 'kmer'
+    publishDir "$params.outdir/genomescope", mode: 'copy'
+    label 'btk'
 
     input:
       tuple val(strain), path(histo)
     output:
-      path("${strain}_genomescope")
+      path("${strain}_k${params.kmer}_gscope")
+      
     script:
       """
-      mkdir -p ${strain}_genomescope
-      Rscript /kmer_wd/genomescope.R $histo $params.kmer 150 ${strain}_genomescope \
-      | tail -n +2 \
-      | sed \'s/Model converged //; s/ /\\n/g\' > \
-      ${strain}_genomescope/${strain}_gmodel.txt
+      genomescope.R $histo $params.kmer 150 ${strain}_k${params.kmer}_gscope
       """
 }
 
@@ -89,6 +86,42 @@ process hifiasm {
       """
       /software/team301/hifiasm/hifiasm $reads -o $strain -t ${task.cpus}
       awk '/^S/{print ">"\$2"\\n"\$3}' ${strain}.p_ctg.gfa | fold > ${strain}.hifiasm.fasta
+      """
+}
+
+process busco {
+    tag "${strain}_${busco_db}"
+    publishDir "$params.outdir/busco/${strain}_${busco_db}", mode: 'copy'
+    label 'big_parallelizable'
+
+    input:
+      tuple val(strain), path(genome), val(busco_db)
+      path busco_db_dir
+
+    output:
+      path("${strain}_${busco_db}_single_copy_busco_sequences*")
+      tuple val(strain), path("${strain}_${busco_db}_full_table.tsv"), emit: busco_table
+      path("${strain}_${busco_db}_short_summary.txt")
+
+    script:
+      """
+      if [ -f *.gz ]; then
+            gunzip -c $genome > assembly.fasta
+        else
+            ln $genome assembly.fasta
+      fi
+      export AUGUSTUS_CONFIG_PATH=augustus_conf
+      cp -r /augustus/config/ \$AUGUSTUS_CONFIG_PATH
+      busco -c ${task.cpus} -l $busco_db -i assembly.fasta --out run_busco --mode geno
+      mv run_busco/short_summary* ${strain}_${busco_db}_short_summary.txt
+      mv run_busco/run_*/full_table.tsv ${strain}_${busco_db}_full_table.tsv
+      for ext in .faa .fna; do
+        seqFile=${strain}_${busco_db}_single_copy_busco_sequences\$ext
+        for file in run_busco/run_nematoda_odb10/busco_sequences/single_copy_busco_sequences/*\$ext; do
+          echo \">\$(basename \${file%\$ext})\" >> \$seqFile; tail -n +2 \$file >> \$seqFile;
+        done
+      done
+      rm -rf \$AUGUSTUS_CONFIG_PATH run_busco/ assembly.fasta
       """
 }
 
@@ -139,7 +172,6 @@ process chunk_assembly {
 
 process diamond_search {
     tag "${strain}"
-    label 'big_parallelizable'
     label 'btk'
 
     input:
@@ -165,7 +197,6 @@ process diamond_search {
 
 process unchunk_hits {
     tag "${strain}"
-    publishDir "$params.outdir/", mode: 'copy'
     label 'btk'
 
     input:
@@ -202,6 +233,24 @@ process map_reads {
       """
 }
 
+process kat_plot {
+    tag "${strain}"
+    publishDir "$params.outdir/kat", mode: 'copy'
+    label 'big_parallelizable'
+    label 'btk'
+
+    input:
+      tuple val(strain), path(reads), path(assembly)
+
+    output:
+      tuple val(strain), path("${strain}-main.mx.*")
+
+    script:
+      """
+      kat comp -t ${task.cpus} -o $strain $reads $assembly
+      """
+}
+
 process create_blobDir {
     tag "${strain}"
     label 'btk'
@@ -223,13 +272,13 @@ echo \$PATH
       """
 }
 
-process add_hits_and_coverage {
+process add_hits_coverage_and_busco {
     tag "${strain}"
     publishDir "$params.outdir/btkDatasets", mode: 'copy'
     label 'btk'
 
     input:
-      tuple val(strain), path(btkdir), path(diamondHits), path(bam)
+      tuple val(strain), path(btkdir), path(diamondHits), path(bam), path(busco)
 
     output:
       tuple val(strain), path("${btkdir}")
@@ -237,30 +286,63 @@ process add_hits_and_coverage {
     script:
       """
       $params.blobtoolsPath add \
-            --hits ${diamondHits} \
+            --hits $diamondHits \
             --taxdump $params.taxdump \
             --taxrule $params.taxrule \
             --cov ${bam}=reads \
+            --busco $busco \
             $btkdir
+
+      $params.blobtoolsPath filter \
+            --summary $btkdir/summary.json \
+            $btkdir
+      """
+}
+
+process btk_static_images {
+    tag "${strain}"
+    label 'btk'
+
+    input:
+      tuple val(strain), path(btkdir)
+
+    output:
+      tuple val(strain), path("${btkdir}")
+
+    script:
+      """
+      $params.blobtoolsPath view \
+            --view blob \
+            --param plotShape=circle \
+            --param bestsumorder_phylum--Order=no-hit%2CNematoda%2CProteobacteria%2CActinobacteria \
+            --format png --format svg \
+            $btkdir
+      $params.blobtoolsPath view \
+            --view cumulative \
+            --format png --format svg \
+            $btkdir
+      mv *svg *png $btkdir
       """
 }
 
 process filter_fasta {
     tag "${strain}"
-    publishDir "$params.outdir/btkDatasets", mode: 'copy'
+    publishDir "$params.outdir/filteredData", mode: 'copy'
     label 'btk'
 
     input:
-      tuple val(strain), path(btkdir), path(bam), path(reads), path(assembly)
+      tuple val(strain), path(btkdir), path(bam), path(assembly), path(reads)
 
     output:
-      tuple val($strainName), path("$filtered_assemFile"), emit: filtered_assem
-      tuple val($strainName), path("$filtered_readsFile"), emit: filtered_reads
+      tuple val(strainName), path("$filtered_assemFile"), emit: filtered_assem
+      tuple val(strainName), path("$filtered_readsFile"), emit: filtered_reads
 
     script:
-    filtered_assemFile = assembly - ~/(\.fasta)(\.fa)/ + ".filtered.fasta"
-    filtered_readsFile = reads - ~/(\.fasta)(\.fa)/ + ".filtered.fasta"
     strainName = strain + "_filtered"
+    btk_fltrd_assemFile = assembly.baseName - ~/(\.fasta)?(\.fa)?$/ + ".filtered.fasta"
+    btk_fltrd_readsFile = reads.baseName - ~/(\.gz)?$/ + ".filtered.gz"
+    filtered_assemFile = strainName + ".hifiasm.fasta"
+    filtered_readsFile = strainName + ".ccs.fasta.gz"
       """
       $params.blobtoolsPath filter \
         --param bestsumorder_superkingdom--Keys=Bacteria \
@@ -269,15 +351,46 @@ process filter_fasta {
         --fastq $reads \
         --cov $bam \
         $btkdir
+      mv $btk_fltrd_readsFile $filtered_readsFile
+      mv $btk_fltrd_assemFile $filtered_assemFile
       """
 }
 
+
+workflow raw_asses {
+    take: reads
+    main:
+        kmer_hist(reads)
+        genomescope(kmer_hist.out.kmer_counts)
+        hifiasm(reads) | mask_assembly | chunk_assembly
+        busco(hifiasm.out.combine(busco_dbs), busco_db_dir)
+        diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
+        map_reads(reads.join(hifiasm.out))
+        kat_plot(reads.join(hifiasm.out))
+        create_blobDir(hifiasm.out)
+        add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table))))
+        filter_fasta(add_hits_coverage_and_busco.out.join(map_reads.out.join(hifiasm.out.join(reads))))
+    emit:
+        filter_fasta.out.filtered_reads
+}
+
+workflow fltd_asses {
+    take: reads
+    main:
+        kmer_hist(reads)
+        genomescope(kmer_hist.out.kmer_counts)
+        hifiasm(reads) | mask_assembly | chunk_assembly
+        busco(hifiasm.out.combine(busco_dbs), busco_db_dir)
+        diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
+        map_reads(reads.join(hifiasm.out))
+        kat_plot(reads.join(hifiasm.out))
+        create_blobDir(hifiasm.out)
+        add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table))))
+    emit:
+        add_hits_coverage_and_busco.out
+}
+
 workflow {
-    jellyfish(reads) | genomescope
-    hifiasm(reads) | mask_assembly | chunk_assembly
-    diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
-    map_reads(reads.join(hifiasm.out))
-    create_blobDir(hifiasm.out)
-    add_hits_and_coverage(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out)))
-    filter_fasta(add_hits_and_coverage.out.join(map_reads.out.join(hifiasm.out.join(reads))))
+    raw_asses(reads)
+    fltd_asses(raw_asses.out)
 }

@@ -2,7 +2,7 @@ nextflow.enable.dsl=2
 
 
 
-params.odb = 'lepidoptera_odb10,endopterygota_odb10'
+params.odb = 'lepidoptera_odb10,nematoda_odb10'
 params.busco_downloads = './busco_downloads'
 params.genomes = './data/*fasta.gz'
 params.outdir = './results'
@@ -33,9 +33,7 @@ process busco {
       path busco_db_dir
 
     output:
-      path "${species}_${busco_db}_full_table.tsv", emit: full_busco_table
-      path "${species}_${busco_db}_short_summary.txt", emit: short_busco_report
-      path "run_${busco_db}", emit: busco_busco_sequences
+      path "${species}_${busco_db}_*"
 
     script:
       """
@@ -49,8 +47,13 @@ process busco {
       busco -c ${task.cpus} -l $busco_db -i assembly.fasta --out run_busco --mode geno
       mv run_busco/short_summary* ${species}_${busco_db}_short_summary.txt
       mv run_busco/run_*/full_table.tsv ${species}_${busco_db}_full_table.tsv
-      rm -rf \$AUGUSTUS_CONFIG_PATH run_busco/blast_db run_busco/run_*/augustus_output run_busco/run_*/blast_output run_busco/run_*/hmmer_output assembly.fasta
-      mv run_busco/run_${busco_db}/ run_${busco_db}
+      for ext in .faa .fna; do
+        seqFile=${species}_${busco_db}_single_copy_busco_sequences\$ext
+        for file in run_busco/run_nematoda_odb10/busco_sequences/single_copy_busco_sequences/*\$ext; do
+          echo \">\$(basename \${file%\$ext})\" >> \$seqFile; tail -n +2 \$file >> \$seqFile;
+        done
+      done
+      rm -rf \$AUGUSTUS_CONFIG_PATH run_busco/ assembly.fasta
       """
 }
 
