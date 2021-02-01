@@ -8,7 +8,7 @@ occur on the left side.
 
 Usage:
         filter_telomeric_reads.py [--in FASTA] [--motif STR] [--times INT]
-                                   [--out FILE]
+                                  [--out FILE] [--lacking FILE]
 
 options:
     -i FASTA, --in FASTA    input gzip compressed FASTA file.
@@ -16,8 +16,10 @@ options:
                             [Default: TTAGGC]
     --times INT             minimum number of contiguous occurrences.
                             [Default: 50]
-    -o FILE, --out FILE     output filename for gzip compressed FASTA.
+    -o FILE, --out FILE     filename for gzip compressed for telomeric reads.
                             [Default: telomericReads.fasta.gz]
+    -l FILE, --lacking FILE filename for gzip compressed for non-telomeric reads.
+                            [Default: nontelomericReads.fasta.gz]
 """
 
 import gzip
@@ -27,7 +29,7 @@ from subprocess import Popen, PIPE
 import shlex
 
 __author__ = "Richard Challis, Pablo Manuel Gonzalez de la Rosa"
-__version__ = '0.2.1'
+__version__ = '0.3.1'
 
 def read_fasta(fastafile):
     """Read fasta"""
@@ -62,6 +64,7 @@ def reverse_complement_sequence(seq):
 
 def trim_sequence_from_start(seq, motif):
     motif_size = len(motif)
+    rev_motif = reversed(motif)
     motif_pos = 0
     updated_min_search_pos = 0 
     # expanding the search space up to almost twice the motif size
@@ -70,7 +73,7 @@ def trim_sequence_from_start(seq, motif):
     # incomplete motif at the beggining of sequence
     # allowing up to a 3 nucleotides insertion and
     # some motif mismatch
-    updated_top_search_pos = (2 * motif_size) + 3
+    updated_top_search_pos = (20 * motif_size)
     while motif_pos >= 0:
         min_search_pos = updated_min_search_pos
         top_search_pos = updated_top_search_pos
@@ -84,14 +87,18 @@ def trim_sequence_from_start(seq, motif):
 
 
 if __name__ == "__main__":
-    args            = docopt(__doc__)
-    motif           = args['--motif']
-    rev_motif       = reverse_complement_sequence(motif)
-    motif_size      = len(motif)
-    supermotif_size = motif_size * int(args['--times'])
-    supermotif      = motif      * int(args['--times'])
-    rev_supermotif  = reverse_complement_sequence(supermotif)
-    telomeric_reads = ''
+    args                = docopt(__doc__)
+    outfile             = args['--out']
+    nontelomfile        = args['--lacking']
+    motif               = args['--motif']
+    rev_motif           = reverse_complement_sequence(motif)
+    motif_size          = len(motif)
+    supermotif_size     = motif_size * int(args['--times'])
+    supermotif          = motif      * int(args['--times'])
+    rev_supermotif      = reverse_complement_sequence(supermotif)
+    write_non_telomeric = bool(nontelomfile)
+    non_telomeric_reads = ''
+    telomeric_reads     = ''
 
     for seq in read_fasta(args['--in']):
         if len(seq['seq']) >= 2 * supermotif_size:
@@ -110,7 +117,14 @@ if __name__ == "__main__":
                     reverse_complement_sequence(seq['seq']),
                  rev_motif)
                 telomeric_reads += "%s\n" % trimmed_sequence
-    
-    outfile = args['--out']
+            elif write_non_telomeric:
+                non_telomeric_reads += ">%s\n" % seq['title']
+                non_telomeric_reads += "%s\n" % seq['seq']
+
+                
     with gzip.open(outfile, 'wt') as ofh:
         ofh.writelines(telomeric_reads)
+    
+    if write_non_telomeric:
+        with gzip.open(nontelomfile, 'wt') as nofh:
+            nofh.writelines(non_telomeric_reads)
