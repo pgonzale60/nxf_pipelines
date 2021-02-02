@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Filter pacbio reads with contigous repeat at their start or end and trim telomeric repeats.
-This script realies on the high fidelity and strandedness of PacBio HiFi reads.
+This script relies on the high fidelity and strandedness of PacBio HiFi reads.
 The strongest assumption is that the forward motif will only occur on the right
 end of the reads, while the reverse complement of the motif can only
 occur on the left side.
