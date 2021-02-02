@@ -73,7 +73,7 @@ def trim_sequence_from_start(seq, motif):
     # incomplete motif at the beggining of sequence
     # allowing up to a 3 nucleotides insertion and
     # some motif mismatch
-    updated_top_search_pos = (20 * motif_size)
+    updated_top_search_pos = motif_size + (motif_size - 1)
     while motif_pos >= 0:
         min_search_pos = updated_min_search_pos
         top_search_pos = updated_top_search_pos
