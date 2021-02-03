@@ -3,7 +3,6 @@ nextflow.preview.dsl=2
 date = new Date().format( 'yyyyMMdd' )
 params.outdir = "miniBtk-${date}"
 params.reads = "/home/ubuntu/oscheius/0-inputs/test.ccsf.fasta.gz"
-params.assemblies = "/home/ubuntu/oscheius/0-inputs/test.fasta"
 params.btkPath = "~/sw/blobtoolkit/"
 params.blobtoolsPath = "${params.btkPath}/blobtools2/blobtools"
 params.dmnd_db = "custom.dmnd"
