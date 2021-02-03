@@ -393,3 +393,18 @@ workflow {
     raw_asses(reads)
     fltd_asses(raw_asses.out)
 }
+
+/* get read statistics
+
+outfile=filteredReads.stats.tsv
+printf "sample\ttotal\tnSeqs\tN50\tauN\n" > $outfile
+for file in miniBtk-20210123/filteredData/*ccs*; do
+calN50.js $file > tmp.txt
+sample=$(basename ${file%_filtered.ccs.fasta.gz})
+printf "$sample\t" >> $outfile
+cat tmp.txt | grep -P "^SZ|^NN" | cut -f2 | tr $'\n' $'\t' >> $outfile
+cat tmp.txt | grep -P "^NL\t50" | cut -f3 | tr $'\n' $'\t' >> $outfile
+cat tmp.txt | grep -P "^AU" | cut -f2 >> $outfile
+done
+rm tmp.txt
+*/
