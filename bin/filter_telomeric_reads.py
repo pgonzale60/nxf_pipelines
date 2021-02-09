@@ -27,9 +27,10 @@ from itertools import groupby
 from docopt import docopt
 from subprocess import Popen, PIPE
 import shlex
+import re
 
 __author__ = "Richard Challis, Pablo Manuel Gonzalez de la Rosa"
-__version__ = '0.3.1'
+__version__ = '0.3.2'
 
 def read_fasta(fastafile):
     """Read fasta"""
@@ -62,7 +63,7 @@ def reverse_complement_sequence(seq):
     reverse_complement = "".join(complement.get(base, base) for base in reversed(seq))
     return reverse_complement
 
-def trim_sequence_from_start(seq, motif):
+def defunct_trim_sequence_from_start(seq, motif):
     motif_size = len(motif)
     rev_motif = reversed(motif)
     motif_pos = 0
@@ -85,6 +86,17 @@ def trim_sequence_from_start(seq, motif):
     return seq[min_search_pos:]
 
 
+def trim_sequence_from_start(seq, motif, min_occur):
+    motif_size = len(motif)
+    trimmedSeq = re.sub("^.{0," + str(motif_size)
+                                + "}("
+                                + motif
+                                + ".?){"
+                                + str(min_occur)
+                                + ",999999}", "", seq)
+    return trimmedSeq
+
+
 
 if __name__ == "__main__":
     args                = docopt(__doc__)
@@ -93,6 +105,7 @@ if __name__ == "__main__":
     motif               = args['--motif']
     rev_motif           = reverse_complement_sequence(motif)
     motif_size          = len(motif)
+    min_occur           = int(args['--times'])
     supermotif_size     = motif_size * int(args['--times'])
     supermotif          = motif      * int(args['--times'])
     rev_supermotif      = reverse_complement_sequence(supermotif)
@@ -101,21 +114,23 @@ if __name__ == "__main__":
     telomeric_reads     = ''
 
     for seq in read_fasta(args['--in']):
-        if len(seq['seq']) >= 2 * supermotif_size:
+        read_size = len(seq['seq'])
+        if read_size >= 2 * motif_size * min_occur:
             seq_start = get_sequence_start(seq['seq'], supermotif_size * 2)
-            seq_end = get_sequence_end(seq['seq'], supermotif_size * 2)
+            seq_end   = get_sequence_end(  seq['seq'], supermotif_size * 2)
             begins_with_telomere = rev_supermotif in seq_start or supermotif in seq_start
-            ends_with_telomere   = supermotif in seq_end or rev_supermotif in seq_end
+            ends_with_telomere   = rev_supermotif in seq_end   or supermotif in seq_end
             if begins_with_telomere:
                 if not ends_with_telomere:
                     telomeric_reads += ">%s\n" % seq['title']
-                    trimmed_sequence = trim_sequence_from_start(seq['seq'], rev_motif)
+                    trimmed_sequence = trim_sequence_from_start(seq['seq'],
+                                                                rev_motif, min_occur)
                     telomeric_reads += "%s\n" % trimmed_sequence
             elif ends_with_telomere:
                 telomeric_reads += ">%s\n" % seq['title']
                 trimmed_sequence = trim_sequence_from_start(
                     reverse_complement_sequence(seq['seq']),
-                 rev_motif)
+                 rev_motif, min_occur)
                 telomeric_reads += "%s\n" % trimmed_sequence
             elif write_non_telomeric:
                 non_telomeric_reads += ">%s\n" % seq['title']
