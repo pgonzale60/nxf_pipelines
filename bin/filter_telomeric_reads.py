@@ -19,7 +19,6 @@ options:
     -o FILE, --out FILE     filename for gzip compressed for telomeric reads.
                             [Default: telomericReads.fasta.gz]
     -l FILE, --lacking FILE filename for gzip compressed for non-telomeric reads.
-                            [Default: nontelomericReads.fasta.gz]
 """
 
 import gzip
