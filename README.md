@@ -62,4 +62,27 @@ nextflow -c /lustre/scratch116/tol/projects/tol-nemotodes/sw/nxf_pipelines/busco
 		 -profile farm
 ```
 
+## nemachromQC
 
+To assess the quality of chromosome level nematode assemblies using HiFi reads, you can use the `qc_assem.nf` pipeline.
+
+### Dependencies
+
+- python 3.x
+- python docopt
+- minimap2
+- bedtools
+- seqkit
+- r-scales
+- r-dplyr
+- r-readr
+- r-stringr
+- r-ggplot2
+- r-optparse
+- r-tidyr
+- r-ggpubr
+
+Create environment nemaChromQC
+```
+conda create -y -n nemaChromQC -c conda-forge -c bioconda minimap2 docopt python=3 bedtools r-scales r-dplyr r-readr r-stringr r-ggplot2 r-optparse r-tidyr r-ggpubr
+```
