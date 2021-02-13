@@ -48,12 +48,12 @@ minNigonFrac            <- opt$minimumNigonFrac
 minFracAlignedTeloReads <- opt$minimumFracAlignedTeloReads
 windwSize               <- opt$windowSize
 
-# Parameters used when testing 
+# Parameters used when testing
 # assemName <- "DF5120_hifiasm"
-# nigonDictFile <- "https://github.com/pgonzale60/vis_ALG/raw/main/data/gene2Nigon_busco20200927.tsv.gz"
-# buscoFile <- "analyses/qualityMetrics/assembly/nigons/DF5120_filtered.hifiasm_nematoda_odb10_full_table.tsv"
-# teloMappedFile <- "analyses/qualityMetrics/assembly/teloMaps/DF5120_filtered.hifiasm.teloMapped.mmap2.tsv.gz"
-# teloRepsFile <- "analyses/genomicFeatures/telomeres/telomere_BlaxGeNe8769972.1kw.tsv"
+# nigonDictFile <- "tmp/gene2Nigon_busco20200927.tsv.gz"
+# buscoFile <- "tmp/SB133.wtdbg2_nematoda_odb10_full_table.tsv"
+# teloMappedFile <- "tmp/SB133.wtdbg2.teloMapped.paf.gz"
+# teloRepsFile <- "tmp/SB133.wtdbg2_teloRepeatCounts.tsv.gz"
 # minimumGenesPerSequence <- 15
 # minNigonFrac <- .90
 # minFracAlignedTeloReads <- 0.1
@@ -160,10 +160,13 @@ consUsco <- group_by(fbusco, Sequence) %>%
 
 
 
-mappedTelo <- filter(teloMappings,
+longSeqTeloMappings <- filter(teloMappings,
                      tp == "P",
-                     map_match >= (query_length * 0.8)) %>%
-  mutate(frac_target_start = (target_start / target_length)) %>%
+                     map_match >= (query_length * 0.8),
+                     target_length > windwSize * 2)
+
+mappedTelo <- mutate(longSeqTeloMappings,
+                       frac_target_start = (target_start / target_length)) %>%
   group_by(target_name) %>%
   mutate(tReads = n()) %>%
   ungroup() %>%
@@ -174,57 +177,74 @@ teloRepsForPlot <- filter(telomWind, contig %in% consUsco$Sequence)
 
 
 # Plot
-plNigon <- group_by(consUsco, Sequence) %>%
-  mutate(ints = as.numeric(as.character(cut(stPos,
-                                            breaks = seq(0, max(stPos), windwSize),
-                                            labels = seq(windwSize, max(stPos), windwSize)))),
-         ints = ifelse(is.na(ints), max(ints, na.rm = T) + windwSize, ints)) %>%
-  count(ints, nigon) %>%
-  ungroup() %>%
-  ggplot(aes(fill=nigon, y=n, x=ints-windwSize)) + 
-  facet_grid(Sequence ~ ., switch = "y") +
-  geom_bar(position="stack", stat="identity") +
-  theme_minimal() +
-  scale_y_continuous(breaks = scales::pretty_breaks(4),
-                     position = "right") +
-  scale_x_continuous(labels = label_number_si()) +
-  scale_fill_manual(values = cols) +
-  guides(fill = guide_legend(ncol = 1,
-                             title = "Nigon")) +
-  theme(axis.title.y=element_blank(),
-        axis.title.x=element_blank(),
-        legend.position="none",
-        panel.border = element_blank()
-  )
-
-plTeloCov <- ggplot(mappedTelo, aes(x = target_start, fill = strand)) +
-  facet_grid(target_name ~ .) +
-  geom_histogram(bins = 100, alpha=.5, position="identity") +
-  theme_minimal() +
-  scale_x_continuous(labels = label_number_si()) +
-  theme(axis.title.y=element_blank(),
-        axis.title.x=element_blank(),
-        panel.border = element_blank(),
-        legend.position="none",) +
-  xlab("Telomeric read aligned (at % of contig length)")
+if(nrow(consUsco) > 0){
+  plNigon <- group_by(consUsco, Sequence) %>%
+    mutate(ints = as.numeric(as.character(cut(stPos,
+                                              breaks = seq(0, max(stPos), windwSize),
+                                              labels = seq(windwSize, max(stPos), windwSize)))),
+           ints = ifelse(is.na(ints), max(ints, na.rm = T) + windwSize, ints)) %>%
+    count(ints, nigon) %>%
+    ungroup() %>%
+    ggplot(aes(fill=nigon, y=n, x=ints-windwSize)) + 
+    facet_grid(Sequence ~ ., switch = "y") +
+    geom_bar(position="stack", stat="identity") +
+    theme_minimal() +
+    scale_y_continuous(breaks = scales::pretty_breaks(4),
+                       position = "right") +
+    scale_x_continuous(labels = label_number_si()) +
+    scale_fill_manual(values = cols) +
+    guides(fill = guide_legend(ncol = 1,
+                               title = "Nigon")) +
+    ggtitle("Nigons") +
+    theme(axis.title.y=element_blank(),
+          axis.title.x=element_blank(),
+          legend.position="none",
+          panel.border = element_blank()
+    )
+} else {
+  plNigon <- ggplot() + theme_void()
+}
 
 
-plTelo <- ggplot(teloRepsForPlot, aes(x=wStart-windwSize, y=teloCount)) + 
-  facet_grid(contig ~ ., switch = "y") +
-  geom_line() +
-  theme_minimal() +
-  scale_y_continuous(position = "right") +
-  scale_x_continuous(labels = label_number_si()) +
-  theme(axis.title.y=element_blank(),
-        axis.title.x=element_blank(),
-        strip.text.x = element_blank(),
-        strip.background = element_blank(),
-        panel.border = element_blank())
+if(nrow(mappedTelo) > 0){
+  plTeloCov <- ggplot(mappedTelo, aes(x = frac_target_start, fill = strand)) +
+    facet_grid(target_name ~ .) +
+    geom_histogram(bins = 100, alpha=.5, position="identity") +
+    theme_minimal() +
+    scale_x_continuous(labels = scales::percent) +
+    ggtitle("Telomeric reads") +
+    theme(axis.title.y=element_blank(),
+          axis.title.x=element_blank(),
+          panel.border = element_blank(),
+          legend.position="none")
+} else {
+  plTeloCov <- ggplot() + theme_void()
+}
 
 
-pExpTelo <- ggarrange(plNigon, plTelo, plTeloCov,
-                      labels = c("A", "B", "C"),
-                      nrow = 1)
+if(nrow(consUsco) > 0){
+  plTelo <- ggplot(teloRepsForPlot, aes(x=wStart-windwSize, y=teloCount)) + 
+    facet_grid(contig ~ ., switch = "y") +
+    geom_line() +
+    theme_minimal() +
+    scale_y_continuous(position = "right") +
+    scale_x_continuous(labels = label_number_si()) +
+    ggtitle("Telomeric repeat") +
+    theme(axis.title.y=element_blank(),
+          axis.title.x=element_blank(),
+          strip.text.x = element_blank(),
+          strip.background = element_blank(),
+          panel.border = element_blank())
+} else {
+  plTelo <- ggplot() + theme_void()
+}
+
+if(nrow(consUsco) > 0){
+  pExpTelo <- ggarrange(plNigon, plTelo, plTeloCov,
+                        nrow = 1)
+} else {
+  pExpTelo <- plTeloCov
+}
 
 # QC metrics
 
@@ -251,24 +271,35 @@ teloBlocks <- mutate(mappedTelo, rstart = ifelse(strand == "+",
             regSupport = n(),
             .groups = "drop")
 # identify erroneous Nigon fusions. Assuming O. tipulae karyotype
-seqsWithInternalTelomere <- filter(teloFracByStrand, pos > .02, neg < .98) %>%
-  pull(target_name)
+if(nrow(mappedTelo) > 0) {
+  seqsWithInternalTelomere <- filter(teloFracByStrand, pos > .02, neg < .98) %>%
+    pull(target_name)
+} else {
+  seqsWithInternalTelomere <- character()
+}
 
-nigonFused <- filter(consUsco, nigon != "-") %>%
-  count(Sequence, nigon) %>%
-  group_by(Sequence) %>%
-  mutate(nSeqNigons = sum(n),
-         fracSeqNigon = n/nSeqNigons,
-         maxFracSeqNigon = max(fracSeqNigon)) %>%
-  filter(nSeqNigons > minimumGenesPerSequence,
-         fracSeqNigon > 0.2 * maxFracSeqNigon) %>%
-  mutate(ndiffNigons = n()) %>%
-  filter(ndiffNigons > 1) %>%
-  arrange(nigon) %>%
-  summarise(diffNigons = paste(nigon, collapse = ","),
-            nSeqNigons = unique(nSeqNigons),
-            .groups = "drop") %>%
-  filter(diffNigons != "E,X")
+
+if(nrow(consUsco > 0)){
+  nigonFused <- filter(consUsco, nigon != "-") %>%
+    count(Sequence, nigon) %>%
+    group_by(Sequence) %>%
+    mutate(nSeqNigons = sum(n),
+           fracSeqNigon = n/nSeqNigons,
+           maxFracSeqNigon = max(fracSeqNigon)) %>%
+    filter(nSeqNigons > minimumGenesPerSequence,
+           fracSeqNigon > 0.2 * maxFracSeqNigon) %>%
+    mutate(ndiffNigons = n()) %>%
+    filter(ndiffNigons > 1) %>%
+    arrange(nigon) %>%
+    summarise(diffNigons = paste(nigon, collapse = ","),
+              nSeqNigons = unique(nSeqNigons),
+              .groups = "drop") %>%
+    filter(diffNigons != "E,X")
+} else {
+  nigonFused <- tibble(Sequence = "",
+                       diffNigons = "",
+                       nSeqNigons = 0)
+}
 
 nigonFusedAndInternalTelomere <- filter(nigonFused, Sequence %in%
                                           seqsWithInternalTelomere)
@@ -298,46 +329,43 @@ busco_string <- paste("C:", busco_score$Complete, "%",
     
 
 
+if(nrow(mappedTelo) > 0) {
+  teloCompleteSeqs <- filter(teloFracByStrand, pos < .05, neg > .95) %>%
+    pull(target_name)
+} else {
+  teloCompleteSeqs <- character()
+}
 
-teloCompleteSeqs <- filter(teloFracByStrand, pos < .05, neg > .95) %>%
-  pull(target_name)
+
+
 
 # This assumes low duplication rate
 nigonCompleteSeqs <- count(consUsco, nigon, Sequence) %>%
   group_by(nigon) %>%
   mutate(fracTot = n/sum(n)) %>%
   ungroup() %>%
-  filter(fracTot > minNigonFrac) %>%
-  pull(Sequence)
+  filter(fracTot > minNigonFrac,
+         nigon != "-") %>%
+  select(Sequence, nigon)
+
+t2t <- nigonCompleteSeqs$Sequence[
+  nigonCompleteSeqs$Sequence %in% teloCompleteSeqs]
 
 
-chromQC <- filter(consUsco, Sequence %in% nigonCompleteSeqs,
-         Sequence %in% teloCompleteSeqs) %>%
-  count(Sequence, nigon) %>%
-    group_by(Sequence) %>%
-    slice_max(n) %>%
-    ungroup() %>%
-  mutate(nCompleteChroms = n()) %>%
-    pivot_longer(cols = c(Sequence, nigon)) %>%
-  pivot_wider(id_cols = nCompleteChroms,
-              values_from = value,
-              values_fn = function(x){paste(x, collapse = ",")}) %>%
-  mutate(nNigonFusedAndInternalTelomere = nrow(nigonFusedAndInternalTelomere),
-         nNigonFused = nrow(nigonFused),
-         nInternalTelomere = length(seqsWithInternalTelomere),
-         assemblyName = assemName,
-         completeUscos = busco_score$Complete,
-         singleUscos = busco_score$Single,
-         duplicatedUscos = busco_score$Duplicated,
-         fragmentedUscos = busco_score$Fragmented,
-         missingUscos = busco_score$Missing) %>%
-  select(assemblyName, nCompleteChroms, nNigonFusedAndInternalTelomere,
-         nNigonFused, nInternalTelomere, completeSeqs = Sequence,
-         completeNigons = nigon, completeUscos, singleUscos,
-         duplicatedUscos, fragmentedUscos, missingUscos)
-
-nrow(nigonFused)
-nrow(nigonFusedAndInternalTelomere)
+chromQC <- tibble(assemblyName = assemName,
+       nT2t = length(t2t),
+       nCompleteNigonSeqs = nrow(nigonCompleteSeqs),
+       nInternalTelomere = length(seqsWithInternalTelomere),
+       nNigonFusedAndInternalTelomere = nrow(nigonFusedAndInternalTelomere),
+       nNigonFused = nrow(nigonFused),
+       completeUscos = busco_score$Complete,
+       singleUscos = busco_score$Single,
+       duplicatedUscos = busco_score$Duplicated,
+       fragmentedUscos = busco_score$Fragmented,
+       missingUscos = busco_score$Missing,
+       t2tSeqs = paste(t2t, collapse = ","),
+       completeNigonSeqs = paste(nigonCompleteSeqs$Sequence, collapse = ","),
+       completeNigons = paste(nigonCompleteSeqs$nigon, collapse = ","))
 
 # Export plot and result
 write_tsv(chromQC, paste(assemName,
