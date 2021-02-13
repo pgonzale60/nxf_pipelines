@@ -1,143 +1,184 @@
 nextflow.preview.dsl=2
 
 date = new Date().format( 'yyyyMMdd' )
-params.outdir = "multiassem-${date}"
+params.outdir = "assemblyQC-${date}"
 params.reads = "mini_DF5120.ccs.fasta.gz"
 params.assemblies = "mini_DF5120.hifiasm.fasta.gz"
-params.dmnd_db = "nigons.dmnd"
-params.max_target_seqs = 1000
-params.evalue = 0.0001
-
+params.odb = 'nematoda_odb10'
+params.busco_downloads = './busco_downloads'
+params.telomere = 'TTAGGC'
+params.busco2nigons = "gene2Nigon_busco20200927.tsv.gz"
+params.min_occurr = 15
+params.teloRepeatWindowSize = 1000
+params.minimumGenesPerSequence = 15
+params.minimumNigonFrac = 0.9
+params.minimumFracAlignedTeloReads = 0.1
+params.windowSizeQC = 5e5
 
 reads = Channel.fromPath(params.reads, checkIfExists: true)
-                .map { file -> tuple(file.Name - ~/(\.telo)?(\.ccs)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
+                .map { file -> tuple(file.Name - ~/(_filtered)?(\.telo)?(\.ccs)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
+
+fastFiles = Channel.fromPath(params.assemblies, checkIfExists: true)
+assemblies = fastFiles.map { file -> tuple(file.Name - ~/(\.hifiasm)?(\.flye)?(\.wtdbg2)?(\.canu)?(\.fa)?(\.fasta)?(\.gz)?$/, file.Name - ~/(\.fa)?(\.fasta)?(\.gz)?$/, file) }
+
+busco2nigons = Channel.fromPath(params.busco2nigons, checkIfExists: true).collect()
+
+busco_dbs = Channel.of(params.odb.split(','))
+busco_db_dir = file(params.busco_downloads)
+geno_busco = assemblies.combine(busco_dbs)
 
 
 
-assemblies = Channel
-                .fromPath(params.assemblies, checkIfExists: true)
-                .map { file -> tuple(file.Name - ~/(\.hifiasm)?(\.flye)?(\.wtdbg2)?(\.canu)?(\.fa)?(\.fasta)?(\.gz)?$/, file.Name - ~/(\.fa)?(\.fasta)?(\.gz)?$/, file) }
-
-dmnd_db = Channel.fromPath(params.dmnd_db, checkIfExists: true).collect()
-
-
-process mask_assembly {
-    tag "${assembler}"
-    label 'btk'
+process busco {
+    tag "${assembler}_${busco_db}"
+    publishDir "$params.outdir/busco", mode: 'copy'
 
     input:
-      tuple val(strain), val(assembler), path(assembly)
+      tuple val(strain), val(assembler), path(genome), val(busco_db)
+      path busco_db_dir
 
     output:
-      tuple val(strain), val(assembler), path("${assembler}.masked.fasta")
+      path "*single_copy_busco_sequences.{faa,fna}"
+      path "${assembler}_${busco_db}_short_summary.txt"
+      tuple val(assembler), path( "${assembler}_${busco_db}_full_table.tsv"), emit: busco_full
 
     script:
       """
       if [ -f *.gz ]; then
-            gunzip -c $assembly > assembly.fasta
+            gunzip -c $genome > assembly.fasta
         else
-            ln -s $assembly assembly.fasta
+            ln $genome assembly.fasta
       fi
-      windowmasker -in assembly.fasta \
-                      -infmt fasta \
-                      -mk_counts \
-                      -sformat obinary \
-                      -out tmp.counts 2> log \
-        && windowmasker -in assembly.fasta \
-                        -infmt fasta \
-                        -ustat tmp.counts \
-                        -dust T \
-                        -outfmt fasta \
-                        -out ${assembler}.masked.fasta
-     rm assembly.fasta
+      export AUGUSTUS_CONFIG_PATH=augustus_conf
+      cp -r /augustus/config/ \$AUGUSTUS_CONFIG_PATH
+      busco -c ${task.cpus} -l $busco_db -i assembly.fasta --out run_busco --mode geno
+      mv run_busco/short_summary* ${assembler}_${busco_db}_short_summary.txt
+      mv run_busco/run_*/full_table.tsv ${assembler}_${busco_db}_full_table.tsv
+      for ext in .faa .fna; do
+        seqFile=${assembler}_${busco_db}_single_copy_busco_sequences\$ext
+        for file in run_busco/run_nematoda_odb10/busco_sequences/single_copy_busco_sequences/*\$ext; do
+          echo \">\$(basename \${file%\$ext})\" >> \$seqFile; tail -n +2 \$file >> \$seqFile;
+        done
+      done
+      rm -rf \$AUGUSTUS_CONFIG_PATH run_busco/ assembly.fasta
       """
 }
 
-
-process chunk_assembly {
-    tag "${assembler}"
+process get_telomeric_reads {
+    tag "${strain}"
     label 'btk'
+    publishDir "$params.outdir/teloReads", mode: 'copy'
 
     input:
-      tuple val(strain), val(assembler), path(assembly)
-
+      tuple val(strain), path(reads)
     output:
-      tuple val(strain), val(assembler), path("${assembler}.chunks.fasta")
+      tuple val(strain), path("${strain}.telo.fasta.gz")
 
     script:
       """
-      chunk_fasta.py --in ${assembly} \
-        --chunk 100000 --overlap 0 --max-chunks 20 \
-        --out ${assembler}.chunks.fasta
-      """
-}
-
-process diamond_search {
-    tag "${assembler}"
-    label 'btk'
-
-    input:
-      tuple val(strain), val(assembler), path(assembly)
-      path(dmnd_db)
-
-    output:
-      tuple val(strain), val(assembler), path("${assembler}.chunk.diamond.tsv")
-
-    script:
-      """
-      diamond blastx \
-            --query ${assembly} \
-            --db $params.dmnd_db \
-            --outfmt 6 qseqid qstart qend sseqid sstart send bitscore scovhsp \
-            --max-target-seqs $params.max_target_seqs \
-            --max-hsps 1 \
-            --evalue $params.evalue \
-            --threads ${task.cpus} \
-            > ${assembler}.chunk.diamond.tsv
-      """
-}
-
-process unchunk_hits {
-    tag "${assembler}"
-    publishDir "$params.outdir/nigons", mode: 'copy'
-    label 'btk'
-
-    input:
-      tuple val(strain), val(assembler), path(diamondHits)
-
-    output:
-      tuple val(strain), val(assembler), path("${assembler}.diamond.tsv.gz")
-
-    script:
-      """
-      unchunk_ng_dmnd.py --in $diamondHits \
-        --out ${assembler}.diamond.tsv
-        gzip ${assembler}.diamond.tsv
+      filter_telomeric_reads.py --in $reads --motif ${params.telomere} \
+        --times ${params.min_occurr} --out ${strain}.telo.fasta.gz
       """
 }
 
 process map_telomeric_reads {
-    tag "${assembler}"
+    tag "${assemblies[1]}"
     publishDir "$params.outdir/teloMaps", mode: 'copy'
     label 'btk'
 
     input:
-      tuple val(strain), path(reads), val(assembler), path(assembly)
+      tuple val(reads), val(assemblies)
 
     output:
-      tuple val(strain), val(assembler), path("${assembler}.teloMapped.mmap2.tsv.gz")
+      tuple val("${assemblies[1]}"), path("${assemblies[1]}.teloMapped.paf.gz")
 
     script:
       """
-      minimap2 ${assembly} $reads | \
-        gzip -c > ${assembler}.teloMapped.mmap2.tsv.gz
+      minimap2 ${assemblies[2]} ${reads[1]} | \
+        gzip -c > ${assemblies[1]}.teloMapped.paf.gz
       """
 }
 
 
+process count_telomeric_repeat {
+    tag "${assembler}"
+    publishDir "$params.outdir/teloRepeatCounts", mode: 'copy'
+    label 'btk'
+
+    input:
+      tuple val(strain), val(assembler), path(assembly)
+    
+    output:
+      tuple val(assembler), path( "${assembler}_teloRepeatCounts.tsv.gz")
+
+    script:
+      """
+      zcat $assembly | \
+        awk '/^>/{if (l!="") print l; printf "%s\\t", \$1; l=0; next}{l+=length(\$0)}END{print l}' | \
+        sed "s/>//" > ${assembler}.seqlen.tsv
+      seqkit locate --bed -M -G -p ${params.telomere} $assembly | \
+        cut -f 1,2,3 | \
+        sort -k1,1 -k2,2n > ${assembler}.teloRepeats.tsv
+      bedtools makewindows -g ${assembler}.seqlen.tsv -w ${params.teloRepeatWindowSize} | \
+        bedtools intersect -a stdin -b ${assembler}.teloRepeats.tsv -wa -wb | \
+        bedtools groupby -i stdin -g 1,2,3 -c 1 -o count | \
+        awk -F '\\t' 'BEGIN{OFS=FS}{print \$0, "telomeres"}' | \
+        gzip -c > ${assembler}_teloRepeatCounts.tsv.gz
+      rm ${assembler}.seqlen.tsv ${assembler}.teloRepeats.tsv
+      """
+}
+
+
+process nematode_chromosome_QC {
+    tag "${assembler}"
+    publishDir "$params.outdir/nemaChromQC", mode: 'copy'
+    label 'btk'
+
+    input:
+      tuple val(assembler), path(buscoTable), path(teloMappedReads), path(teloRepeats)
+      path(busco2nigons)
+    
+    output:
+      path "${assembler}.{pdf,buscoString.txt,teloMappedBlocks.tsv}"
+      path "${assembler}.chromQC.tsv" , emit: busco_full
+
+    script:
+      """
+      nemaChromQC.R --assemblyName $assembler \
+        --nigon $busco2nigons --busco $buscoTable \
+        --teloMappedPaf $teloMappedReads \
+        --teloRepeats $teloRepeats \
+        --minimumGenesPerSequence $params.minimumGenesPerSequence \
+        --minimumNigonFrac $params.minimumNigonFrac \
+        --minimumFracAlignedTeloReads $params.minimumFracAlignedTeloReads \
+        --windowSize $params.windowSizeQC
+      """
+}
+
+process get_contiguity_stats {
+    tag "all"
+    publishDir "$params.outdir/", mode: 'copy'
+    label 'btk'
+
+    input:
+      path(assemblies)
+    
+    output:
+      path "assemblies_contiguity_stats.tsv"
+
+    script:
+      """
+      seqkit stats -a -T $assemblies > assemblies_contiguity_stats.tsv
+      """
+}
+
 
 workflow {
-    mask_assembly(assemblies) | chunk_assembly
-    diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
-    map_telomeric_reads(reads.join(assemblies))
+    busco(geno_busco, busco_db_dir)
+    count_telomeric_repeat(assemblies)
+    get_telomeric_reads(reads)
+    map_telomeric_reads(get_telomeric_reads.out.cross(assemblies))
+    get_contiguity_stats(fastFiles.collect())
+    nematode_chromosome_QC(busco.out.busco_full.join(map_telomeric_reads.out.join(count_telomeric_repeat.out)),
+     busco2nigons)
 }
