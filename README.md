@@ -84,5 +84,5 @@ To assess the quality of chromosome level nematode assemblies using HiFi reads, 
 
 Create environment nemaChromQC
 ```
-conda create -y -n nemaChromQC -c conda-forge -c bioconda minimap2 docopt python=3 bedtools r-scales r-dplyr r-readr r-stringr r-ggplot2 r-optparse r-tidyr r-ggpubr
+conda create -y -n nemaChromQC -c conda-forge -c bioconda minimap2 seqkit docopt python=3 bedtools r-scales r-dplyr r-readr r-stringr r-ggplot2 r-optparse r-tidyr r-ggpubr 
 ```
