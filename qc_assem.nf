@@ -19,7 +19,7 @@ reads = Channel.fromPath(params.reads, checkIfExists: true)
                 .map { file -> tuple(file.Name - ~/(_filtered)?(\.telo)?(\.ccs)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
 
 fastFiles = Channel.fromPath(params.assemblies, checkIfExists: true)
-assemblies = fastFiles.map { file -> tuple(file.Name - ~/(\.hifiasm)?(\.flye)?(\.wtdbg2)?(\.canu)?(\.fa)?(\.fasta)?(\.gz)?$/, file.Name - ~/(\.fa)?(\.fasta)?(\.gz)?$/, file) }
+assemblies = fastFiles.map { file -> tuple(file.Name - ~/(\.hifiasm)?(\.flye)?(\.wtdbg2)?(\.canu_plus_flye)?(\.canu)?(\.fa)?(\.fasta)?(\.gz)?$/, file.Name - ~/(\.fa)?(\.fasta)?(\.gz)?$/, file) }
 
 busco2nigons = Channel.fromPath(params.busco2nigons, checkIfExists: true).collect()
 
@@ -76,7 +76,7 @@ process get_telomeric_reads {
 
     script:
       """
-      filter_telomeric_reads.py --in $reads --motif ${params.telomere} \
+      zcat $reads | filter_telomeric_reads.py --motif ${params.telomere} \
         --times ${params.min_occurr} --out ${strain}.telo.fasta.gz
       """
 }
