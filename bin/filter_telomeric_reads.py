@@ -7,11 +7,10 @@ end of the reads, while the reverse complement of the motif can only
 occur on the left side.
 
 Usage:
-        filter_telomeric_reads.py [--in FASTA] [--motif STR] [--times INT]
+        filter_telomeric_reads.py [--motif STR] [--times INT]
                                   [--out FILE] [--lacking FILE]
 
 options:
-    -i FASTA, --in FASTA    input gzip compressed FASTA file.
     -m STR, --motif STR     telomeric repeat
                             [Default: TTAGGC]
     --times INT             minimum number of contiguous occurrences.
@@ -22,28 +21,46 @@ options:
 """
 
 import gzip
+import sys
 from itertools import groupby
 from docopt import docopt
 from subprocess import Popen, PIPE
 import shlex
 import re
 
-__author__ = "Richard Challis, Pablo Manuel Gonzalez de la Rosa"
-__version__ = '0.3.2'
+__author__ = "Pablo Manuel Gonzalez de la Rosa"
+__version__ = '1.0.0'
 
-def read_fasta(fastafile):
-    """Read fasta"""
-    cmd = "pigz -dc %s" % fastafile
-    # TODO: read gzipped files if needed
-    # cmd = "pigz -dc %s" % fastafile
-    title = ''
-    seq = ''
-    with Popen(shlex.split(cmd), encoding='utf-8', stdout=PIPE, bufsize=4096) as proc:
-        faiter = (x[1] for x in groupby(proc.stdout, lambda line: line[0] == '>'))
-        for header in faiter:
-            title = header.__next__()[1:].strip().split()[0]
-            seq = ''.join(map(lambda s: s.strip(), faiter.__next__()))
-            yield {'title': title, 'seq': seq}
+def readfq(fp): # this is a generator function
+    last = None # this is a buffer keeping the last unprocessed line
+    while True: # mimic closure; is it a bad idea?
+        if not last: # the first record or a record following a fastq
+            for l in fp: # search for the start of the next record
+                if l[0] in '>@': # fasta/q header line
+                    last = l[:-1] # save this line
+                    break
+        if not last: break
+        name, seqs, last = last[1:].partition(" ")[0], [], None
+        for l in fp: # read the sequence
+            if l[0] in '@+>':
+                last = l[:-1]
+                break
+            seqs.append(l[:-1])
+        if not last or last[0] != '+': # this is a fasta record
+            yield name, ''.join(seqs), None # yield a fasta record
+            if not last: break
+        else: # this is a fastq record
+            seq, leng, seqs = ''.join(seqs), 0, []
+            for l in fp: # read the quality
+                seqs.append(l[:-1])
+                leng += len(l) - 1
+                if leng >= len(seq): # have read enough quality
+                    last = None
+                    yield name, seq, ''.join(seqs); # yield a fastq record
+                    break
+            if last: # reach EOF before reading enough quality
+                yield name, seq, None # yield a fasta record instead
+                break
 
 def get_start_and_end_of_sequence(seq, size, nmer_size):
     return seq[0:size + nmer_size - 1] + ("N" * size) + seq[-(size + nmer_size - 1)::]
@@ -112,28 +129,28 @@ if __name__ == "__main__":
     non_telomeric_reads = ''
     telomeric_reads     = ''
 
-    for seq in read_fasta(args['--in']):
-        read_size = len(seq['seq'])
+    for name, seq, qual in readfq(sys.stdin):
+        read_size = len(seq)
         if read_size >= 2 * motif_size * min_occur:
-            seq_start = get_sequence_start(seq['seq'], supermotif_size * 2)
-            seq_end   = get_sequence_end(  seq['seq'], supermotif_size * 2)
+            seq_start = get_sequence_start(seq, supermotif_size * 2)
+            seq_end = get_sequence_end(seq, supermotif_size * 2)
             begins_with_telomere = rev_supermotif in seq_start or supermotif in seq_start
             ends_with_telomere   = rev_supermotif in seq_end   or supermotif in seq_end
             if begins_with_telomere:
                 if not ends_with_telomere:
-                    telomeric_reads += ">%s\n" % seq['title']
-                    trimmed_sequence = trim_sequence_from_start(seq['seq'],
+                    telomeric_reads += ">%s\n" % name
+                    trimmed_sequence = trim_sequence_from_start(seq,
                                                                 rev_motif, min_occur)
                     telomeric_reads += "%s\n" % trimmed_sequence
             elif ends_with_telomere:
-                telomeric_reads += ">%s\n" % seq['title']
+                telomeric_reads += ">%s\n" % name
                 trimmed_sequence = trim_sequence_from_start(
-                    reverse_complement_sequence(seq['seq']),
+                    reverse_complement_sequence(seq),
                  rev_motif, min_occur)
                 telomeric_reads += "%s\n" % trimmed_sequence
             elif write_non_telomeric:
-                non_telomeric_reads += ">%s\n" % seq['title']
-                non_telomeric_reads += "%s\n" % seq['seq']
+                non_telomeric_reads += ">%s\n" % name
+                non_telomeric_reads += "%s\n" % seq
 
                 
     with gzip.open(outfile, 'wt') as ofh:
