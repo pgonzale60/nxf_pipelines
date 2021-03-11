@@ -1,16 +1,19 @@
-nextflow.preview.dsl=2
+nextflow.enable.dsl=2
 
 date = new Date().format( 'yyyyMMdd' )
 params.outdir = "teloAssem-${date}"
 params.telomere = 'TTAGGC'
 params.min_occurr = 15
 params.reads = "mini_DF5120.ccs.fasta.gz"
+params.memeMotif = "DF5120_diminution_400.meme.txt"
+params.teloRepeatWindowSize = 1000
+params.dimiWidth = 200
 
 
 reads = Channel.fromPath(params.reads, checkIfExists: true)
                 .map { file -> tuple(file.Name - ~/(\.ccs)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
 
-
+memeMotif = Channel.fromPath(params.memeMotif, checkIfExists: true).collect()
 
 process get_telomeric_reads {
     tag "${strain}"
@@ -32,7 +35,8 @@ process get_telomeric_reads {
 
 process hifiasm {
     tag "${strain}"
-    label 'big_parallelizable'
+    publishDir "$params.outdir/dimiAssem", mode: 'copy'
+    label 'btk'
 
     input:
       tuple val(strain), path(reads)
@@ -43,7 +47,26 @@ process hifiasm {
     script:
       """
       /software/team301/hifiasm/hifiasm $reads -o $strain -t ${task.cpus}
-      awk '/^S/{print ">"\$2"\\n"\$3}' ${strain}.p_ctg.gfa | fold | gzip -c > ${strain}.hifiasm.fasta.gz
+      awk '/^S/{print ">"\$2"\\n"\$3}' ${strain}.p_ctg.gfa | fold | bgzip -c > ${strain}.hifiasm.fasta.gz
+      """
+}
+
+process flye {
+    tag "${strain}"
+    publishDir "$params.outdir/dimiAssem", mode: 'copy'
+    label 'btk'
+
+    input:
+      tuple val(strain), path(reads)
+
+    output:
+      tuple val(strain), path("${strain}.flye.fasta.gz")
+
+    script:
+      """
+      /software/team301/Flye-2.8.2/Flye/bin/flye --threads ${task.cpus} \
+       --pacbio-hifi $reads --meta -o flyemeta
+       cat flyemeta/assembly.fasta | bgzip -c > ${strain}.flye.fasta.gz
       """
 }
 
@@ -73,7 +96,6 @@ process direct_by_telomere {
 
 process map_reads {
     tag "${strain}"
-    publishDir "$params.outdir/bams", mode: 'copy'
     label 'btk'
 
     input:
@@ -92,27 +114,259 @@ process map_reads {
       """
 }
 
-process coverage_dist {
+process get_read_coordinates {
     tag "${strain}"
-    publishDir "$params.outdir/cov_depth", mode: 'copy'
     label 'btk'
 
     input:
       tuple val(strain), path(bam)
 
     output:
-      tuple val(strain), path("${strain}.depth.tsv.gz")
+      tuple val(strain), path("${strain}.teloMapped.coords.tsv")
 
     script:
       """
-      samtools depth $bam | gzip -c > ${strain}.depth.tsv.gz
+      samtools view ${bam} | teloCoord > ${strain}.teloMapped.coords.tsv
       """
 }
 
-workflow {
-    get_telomeric_reads(reads) //| hifiasm | direct_by_telomere
-    // map_reads(get_telomeric_reads.out.join(direct_by_telomere.out)) | coverage_dist
+process group_read_coordinates {
+    tag "${strain}"
+    label 'r'
+    publishDir "$params.outdir/telomere_read_coords", mode: 'copy'
+
+    input:
+      tuple val(strain), path(coords)
+
+    output:
+      tuple val(strain), path("${strain}.teloPositions.tsv")
+
+    script:
+      """
+      grCoords.R ${coords} ${strain}.teloPositions.tsv
+      """
 }
+
+process get_diminuted_regions {
+    tag "${strain}"
+    label 'btk'
+
+    input:
+      tuple val(strain), path(teloPos), path(fasta)
+
+    output:
+      tuple val(strain), path("${strain}.diminuted.fasta")
+
+    script:
+      """
+      awk 'BEGIN{FS="\\t"}(NR>1){startCoord=\$2-${params.dimiWidth}; if(0 > startCoord){startCoord=0}; print \$1":"startCoord"-"\$2+${params.dimiWidth}}' $teloPos | \
+        xargs samtools faidx $fasta > ${strain}.diminuted.fasta
+      """
+}
+
+process map_telomeric_reads {
+    tag "$strain"
+    publishDir "$params.outdir/teloMaps", mode: 'copy'
+    label 'btk'
+
+    input:
+      tuple val(strain), path(reads), path(assembly)
+
+    output:
+      tuple val("$strain"), path("${strain}.teloMapped.paf.gz")
+
+    script:
+      """
+      minimap2 $assembly $reads | \
+        gzip -c > ${strain}.teloMapped.paf.gz
+      """
+}
+
+process bam2fasta {
+    tag "$strain"
+    label 'btk'
+
+    input:
+      tuple val(strain), path(bam)
+
+    output:
+      tuple val("$strain"), path("${strain}.mappedReads.fasta.gz")
+
+    script:
+      """
+      samtools fasta $bam | bgzip -c > ${strain}.mappedReads.fasta.gz
+      """  
+}
+
+process bam2coords {
+    tag "$strain"
+
+    input:
+      tuple val(strain), path(bam)
+
+    output:
+      tuple val("$strain"), path("${strain}.mappedCoords.tsv.gz")
+
+    script:
+      """
+      samtools view $bam | teloCoord | bgzip -c > ${strain}.mappedCoords.tsv.gz
+      """  
+}
+
+process remove_end_reads {
+    tag "$strain"
+    label 'btk'
+
+    input:
+      tuple val(strain), path(reads), path(end_reads)
+
+    output:
+      tuple val("$strain"), path("${strain}.dimiReads.fasta.gz")
+
+    script:
+      """
+      seqkit seq $end_reads -n > end_reads.ids.txt
+      seqkit seq $reads -n | sort > some_reads.ids.txt
+      cat end_reads.ids.txt some_reads.ids.txt | sort | \
+        uniq --unique > unique_reads.txt
+      # We need to join becuase there can be end_reads that did not map
+      # to the assembly and hence will appear only once in the above list
+      join some_reads.ids.txt unique_reads.txt > non_end_reads.txt
+      cat non_end_reads.txt | xargs samtools faidx $reads | \
+        bgzip -c > ${strain}.dimiReads.fasta.gz
+      """  
+}
+
+process fimo {
+    tag "$strain"
+    publishDir "$params.outdir/fimo", mode: 'copy'
+
+    input:
+      tuple val(strain), path(assembly)
+      path(motif)
+
+    output:
+      tuple val("$strain"), path("${strain}.fimo.tsv")
+
+    script:
+      """
+      if [ -f *.gz ]; then
+            gunzip -c $assembly > assembly.fasta
+        else
+            ln -s $assembly assembly.fasta
+      fi
+      fimo --max-strand $motif assembly.fasta
+      mv fimo_out/fimo.tsv ${strain}.fimo.tsv
+      """  
+}
+
+process meme {
+    tag "$strain"
+    publishDir "$params.outdir/meme", mode: 'copy'
+
+    input:
+      tuple val(strain), path(diminuted_regions)
+
+    output:
+      path "${strain}.meme.{txt,html}"
+
+    script:
+      """
+      meme -dna $diminuted_regions
+      mv meme_out/meme.txt ${strain}.meme.txt
+      mv meme_out/meme.html ${strain}.meme.html
+      """  
+}
+
+process count_telomeric_repeat {
+    tag "${strain}"
+    publishDir "$params.outdir/teloRepeatCounts", mode: 'copy'
+    label 'btk'
+
+    input:
+      tuple val(strain), path(assembly)
+    
+    output:
+      tuple val(strain), path( "${strain}_teloRepeatCounts.tsv.gz")
+
+    script:
+      """
+      zcat $assembly | \
+        awk '/^>/{if (l!="") print l; printf "%s\\t", \$1; l=0; next}{l+=length(\$0)}END{print l}' | \
+        sed "s/>//" > ${strain}.seqlen.tsv
+      seqkit locate --bed -M -G -p ${params.telomere} $assembly | \
+        cut -f 1,2,3 | \
+        sort -k1,1 -k2,2n > ${strain}.teloRepeats.tsv
+      bedtools makewindows -g ${strain}.seqlen.tsv -w ${params.teloRepeatWindowSize} | \
+        bedtools intersect -a stdin -b ${strain}.teloRepeats.tsv -wa -wb | \
+        bedtools groupby -i stdin -g 1,2,3 -c 1 -o count | \
+        awk -F '\\t' 'BEGIN{OFS=FS}{print \$0, "telomeres"}' | \
+        gzip -c > ${strain}_teloRepeatCounts.tsv.gz
+      rm ${strain}.seqlen.tsv ${strain}.teloRepeats.tsv
+      """
+}
+
+process crossCheckMotif {
+    tag "${strain}"
+    publishDir "$params.outdir/crossCheckMotif", mode: 'copy'
+    label 'btk'
+
+    input:
+      tuple val(strain), path(mappedReads), path(motifCoords)
+    
+    output:
+      path "${assembler}.{pdf,buscoString.txt,teloMappedBlocks.tsv}"
+      path "${assembler}.chromQC.tsv" , emit: busco_full
+
+    script:
+      """
+      nemaChromQC.R --assemblyName $assembler \
+        --nigon $busco2nigons --busco $buscoTable \
+        --teloMappedPaf $teloMappedReads \
+        --teloRepeats $teloRepeats \
+        --minimumGenesPerSequence $params.minimumGenesPerSequence \
+        --minimumNigonFrac $params.minimumNigonFrac \
+        --minimumFracAlignedTeloReads $params.minimumFracAlignedTeloReads \
+        --windowSize $params.windowSizeQC
+      """
+}
+
+workflow get_diminuted_reads {
+  take:
+    reads
+  main:
+    get_telomeric_reads(reads) | hifiasm //| direct_by_telomere
+    map_reads(reads.join(hifiasm.out)) | bam2fasta
+    remove_end_reads(bam2fasta.out.join(get_telomeric_reads.out))
+  emit: 
+    diminuted_reads = remove_end_reads.out
+    end_reads = get_telomeric_reads.out
+    end_related_reads = bam2fasta.out
+}
+
+workflow locate_diminution {
+  take:
+    diminuted_reads
+    end_reads
+    memeMotif
+    end_related_reads
+  main:
+    flye(end_related_reads) | count_telomeric_repeat
+    fimo(flye.out, memeMotif)
+    map_reads(end_reads.join(flye.out)) | get_read_coordinates | group_read_coordinates
+    get_diminuted_regions(group_read_coordinates.out.join(flye.out)) | meme
+  emit: 
+    meme.out
+}
+
+workflow {
+    get_diminuted_reads(reads)
+    locate_diminution(get_diminuted_reads.out.diminuted_reads, \
+      get_diminuted_reads.out.end_reads, \
+      memeMotif, get_diminuted_reads.out.end_related_reads)
+}
+
+// 
 
 /*
 cut -f 1 telomeres_flye_CEW1.fasta.fai > ids
@@ -153,4 +407,6 @@ printf "%s\t" $sampName >> bothBtks_cov.tsv
 bioawk -t 'BEGIN{tsum=0; tlen=0}NR>1{tsum+=$5*$4;tlen+=$4}END{printf "%.1f\n", tsum/tlen}' exe.tsv >> bothBtks_cov.tsv
 done
 
+
+nextflow -C /lustre/scratch123/tol/teams/blaxter/projects/tol-nemotodes/sw/nxf_pipelines/telomeric_ends.conf run /lustre/scratch123/tol/teams/blaxter/projects/tol-nemotodes/sw/nxf_pipelines/telomeric_ends.nf --reads /lustre/scratch123/tol/teams/blaxter/projects/tol-nemotodes/bothBatch/analyses/qualitymetrics/miniBtk-20210123/filteredData/DF5120_filtered.ccs.fasta.gz --outdir testDimiId -profile farm -resume
 */
