@@ -130,13 +130,9 @@ nigonDict <- read_tsv(nigonDictFile,
                       col_types = c(col_character(), col_character()))
 busco <- suppressWarnings(read_tsv(buscoFile,
                                    col_names = c("Busco_id", "Status", "Sequence",
-                                                 "start", "end", "Score", "Length",
-                                                 "OrthoDB_url", "Description"),
-                                   col_types = c(col_character(), col_character(),
-                                                 col_character(), col_double(),
-                                                 col_double(), col_double(),
-                                                 col_double(), col_character(),
-                                                 col_character()),
+                                    "start", "end", "strand", "Score", "Length",
+                                    "OrthoDB_url", "Description"),
+                                   col_types = c("ccciicdicc"),
                                    comment = "#"))
 
 teloMappings <- read_paf(teloMappedFile)
@@ -149,7 +145,8 @@ telomWind <- read_tsv(teloRepsFile,
 fbusco <- filter(busco, !Status %in% c("Missing")) %>%
   left_join(nigonDict, by = c("Busco_id" = "Orthogroup")) %>%
   mutate(nigon = ifelse(is.na(nigon), "-", nigon),
-         stPos = start)
+         stPos = start) %>%
+  filter(nigon != "-")
 
 consUsco <- group_by(fbusco, Sequence) %>%
   mutate(nGenes = n(),
@@ -159,7 +156,7 @@ consUsco <- group_by(fbusco, Sequence) %>%
          mxGpos > windwSize * 2)
 
 
-
+if(nrow(teloMappings) > 0){
 longSeqTeloMappings <- filter(teloMappings,
                      tp == "P",
                      map_match >= (query_length * 0.8),
@@ -172,6 +169,9 @@ mappedTelo <- mutate(longSeqTeloMappings,
   ungroup() %>%
   filter(tReads > minFracAlignedTeloReads * max(tReads)) %>%
   select(-tReads)
+  } else {
+  mappedTelo <- tibble(target_name = character(), strand = character())
+}
 
 teloRepsForPlot <- filter(telomWind, contig %in% consUsco$Sequence)
 
@@ -208,9 +208,10 @@ if(nrow(consUsco) > 0){
 
 if(nrow(mappedTelo) > 0){
   plTeloCov <- ggplot(mappedTelo, aes(x = frac_target_start, fill = strand)) +
-    facet_grid(target_name ~ .) +
+    facet_grid(target_name ~ ., switch = "y") +
     geom_histogram(bins = 100, alpha=.5, position="identity") +
     theme_minimal() +
+    scale_y_continuous(position = "right") +
     scale_x_continuous(labels = scales::percent) +
     ggtitle("Telomeric reads") +
     theme(axis.title.y=element_blank(),
@@ -248,14 +249,6 @@ if(nrow(consUsco) > 0){
 
 # QC metrics
 
-teloFracByStrand <- mutate(mappedTelo, cstrand = ifelse(strand == "+", "pos", "neg")) %>%
-  group_by(target_name, cstrand) %>%
-  summarise(avgFrac = mean(frac_target_start),
-            .groups = "drop") %>%
-  pivot_wider(names_from = cstrand,
-              id_cols = target_name,
-              values_from = avgFrac)
-
 # get telomere mapping coordinates into blocks
 teloBlocks <- mutate(mappedTelo, rstart = ifelse(strand == "+",
                          target_start, target_end)) %>%
@@ -271,7 +264,14 @@ teloBlocks <- mutate(mappedTelo, rstart = ifelse(strand == "+",
             regSupport = n(),
             .groups = "drop")
 # identify erroneous Nigon fusions. Assuming O. tipulae karyotype
-if(nrow(mappedTelo) > 0) {
+if(any(grepl("\\+", mappedTelo$strand)) & any(grepl("-", mappedTelo$strand))) {
+  teloFracByStrand <- mutate(mappedTelo, cstrand = ifelse(strand == "+", "pos", "neg")) %>%
+  group_by(target_name, cstrand) %>%
+  summarise(avgFrac = mean(frac_target_start),
+            .groups = "drop") %>%
+  pivot_wider(names_from = cstrand,
+              id_cols = target_name,
+              values_from = avgFrac)
   seqsWithInternalTelomere <- filter(teloFracByStrand, pos > .02, neg < .98) %>%
     pull(target_name)
 } else {
@@ -329,7 +329,7 @@ busco_string <- paste("C:", busco_score$Complete, "%",
     
 
 
-if(nrow(mappedTelo) > 0) {
+if(any(grepl("\\+", mappedTelo$strand)) & any(grepl("-", mappedTelo$strand))) {
   teloCompleteSeqs <- filter(teloFracByStrand, pos < .05, neg > .95) %>%
     pull(target_name)
 } else {
@@ -340,7 +340,7 @@ if(nrow(mappedTelo) > 0) {
 
 
 # This assumes low duplication rate
-nigonCompleteSeqs <- count(consUsco, nigon, Sequence) %>%
+nigonCompleteSeqs <- count(fbusco, nigon, Sequence) %>%
   group_by(nigon) %>%
   mutate(fracTot = n/sum(n)) %>%
   ungroup() %>%
@@ -379,7 +379,12 @@ write(busco_string, paste(assemName,
                           ".buscoString.txt",
                           sep = ""))
 
+plotHeight <- min(1 +
+  max(length(unique(consUsco$Sequence)),
+      length(unique(mappedTelo$target_name))) *
+  0.8,
+  50)
 
 ggsave(paste(assemName, ".pdf", sep = ""),
        pExpTelo,
-       width = 8, height = 8)
+       width = 8, height = plotHeight)
