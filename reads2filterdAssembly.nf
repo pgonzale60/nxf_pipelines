@@ -30,7 +30,7 @@ busco_db_dir = Channel.fromPath(params.busco_downloads, checkIfExists: true, typ
 busco_dbs = Channel.of(params.odb.split(','))
 
 reads = Channel.fromPath(params.reads, checkIfExists: true)
-                .map { file -> tuple(file.Name - ~/(\.ccs)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
+                .map { file -> tuple(file.Name - ~/(_hifi)?(\.ccs)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
 
 
 
@@ -56,7 +56,7 @@ process kmer_hist {
 process genomescope {
     tag "${strain}"
     publishDir "$params.outdir/genomescope", mode: 'copy'
-    label 'btk'
+    label 'r'
 
     input:
       tuple val(strain), path(histo)
@@ -107,7 +107,7 @@ process busco {
       if [ -f *.gz ]; then
             gunzip -c $genome > assembly.fasta
         else
-            ln $genome assembly.fasta
+            ln -s $genome assembly.fasta
       fi
       export AUGUSTUS_CONFIG_PATH=augustus_conf
       cp -r /augustus/config/ \$AUGUSTUS_CONFIG_PATH
