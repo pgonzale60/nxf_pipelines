@@ -27,7 +27,7 @@ def count_single_copy_buscos(busco_seqs):
 def get_usable_buscos(busco_seqs, proportion):
     n_taxa = len(busco_seqs.sampleId.unique())
     min_taxon_count = int(round(n_taxa * proportion, 0))
-    print("[STATUS] Selecting BUSCOs present and single-copy in ≥ " + str(min_taxon_count) + " taxa...")
+    print("[STATUS] Selecting BUSCOs present and single-copy in >= " + str(min_taxon_count) + " taxa...")
     scb_count = count_single_copy_buscos(busco_seqs)
     usable_scb = busco_seqs[scb_count > min_taxon_count]
     usable_scb.loc[:, ('seqNames')] = usable_scb.apply(lambda x: '_'.join(x), axis=1)
