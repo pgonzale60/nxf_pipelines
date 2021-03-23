@@ -1,0 +1,132 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use File::Basename;
+use Data::Dumper;
+
+
+# globals
+
+my $EXE = basename($0);
+my $VERSION = "0.1.0";
+my $AUTHOR = 'Torsten Seemann (@torstenseemann) and Pablo Gonzalez de la Rosa';
+my $HOMEPAGE = "undefined";
+
+# SAM file TSV columns
+use constant {
+  SAM_RID   => 0,
+  SAM_FLAG  => 1,
+  SAM_RNAME => 2,
+  SAM_POS   => 3,
+  SAM_MAPQ  => 4,
+  SAM_CIGAR => 5,
+  SAM_TLEN  => 8,
+  SAM_SEQ   => 9,
+};
+
+#----------------------------------------------------------------------
+# command line parameters
+
+my $debug     = 0;
+
+#----------------------------------------------------------------------
+sub usage {
+  my($exitcode) = @_;
+  $exitcode=0 if !defined($exitcode) or $exitcode eq 'help';
+  my $fh = $exitcode ? \*STDERR : \*STDOUT;
+  print $fh
+    "SYNOPSIS\n  Add telomeric sequence to reference contigs from clipped alignments\n",
+    "AUTHOR\n  $AUTHOR\n",
+    "USAGE\n",
+    "  % samclip --ref ref.fa < in.sam > out.sam\n",
+    "  % minimap2 ref.fa telomeric_reads.fa | teloextend --ref ref.fa > telo_extended.fasta\n",
+    "OPTIONS\n",
+    "  --help           This help\n",
+    "  --version        Print version and exit\n",
+    "  --debug          Print verbose debug info to stderr\n",
+    "HOMEPAGE\n  $HOMEPAGE\n",
+    "";
+  exit($exitcode);
+}
+
+#----------------------------------------------------------------------
+# getopts
+
+
+!@ARGV and -t STDIN and err("Please provide or pipe a SAM file to $EXE");
+
+#----------------------------------------------------------------------
+# main
+msg("$EXE $VERSION by $AUTHOR");
+
+
+my $total=0;
+
+# read SAM one line ar a time
+while (my $line = <ARGV>) {
+  # SAM header
+  if ($line =~ m/^@/) {
+    # print $line;
+    # $header++;
+    next;
+  }
+  $total++;
+  my @sam = split m/\t/, $line;
+  # ensure there is softclipped alignment before heavyweight parsing
+  my $isHardClipped = ($sam[SAM_CIGAR] =~ /\dH/);
+  my $isPrimaryAlignment = !($sam[SAM_FLAG] & 2048 or $sam[SAM_FLAG] & 256);
+  if (not $isHardClipped and $isPrimaryAlignment ) {
+    my $forwardStrand = !($sam[SAM_FLAG] & 16);
+    my $contigname = $sam[SAM_RNAME];
+    my $start = $sam[SAM_POS];
+    my $readlen = length($sam[SAM_SEQ]);
+    my ($SL, undef, $SR) 
+      = ($sam[SAM_CIGAR] =~ m/ ^ (?:(\d+)S)? (.*?) (?:(\d+)S)? $/x);
+    $SL ||= 0; $SR ||= 0;
+
+    my $adjust = 0;
+    # Parse CIGAR string
+    # code adapted from https://github.com/holmeso/adamaperl/blob/56fee71f0c431e3b98ef5f3fc1a2a7213e755e14/lib/QCMG/SamTools/Bam/Alignment.pm#L569
+    my @cigar  = $sam[SAM_CIGAR] =~ /(\d+)(\w)/g;
+    while (@cigar) {
+      my ($len,$op) = splice(@cigar,0,2);
+      $adjust += $len if $op eq 'I';
+      $adjust -= $len if $op eq 'D';
+    }
+    $adjust += $SL + $SR;
+    my $adjustedend = $start + $readlen - $adjust - 1;
+
+    print join("\t", $sam[SAM_RID], $sam[SAM_FLAG], $sam[SAM_RNAME], $sam[SAM_POS], $sam[SAM_MAPQ], $adjustedend), "\n";
+
+  }
+}
+
+
+# stats
+msg("Total SAM records $total");
+
+
+msg("Done.");
+
+
+
+#----------------------------------------------------------------------
+sub version {
+  print "$EXE $VERSION\n";
+  exit(0);
+}
+
+#----------------------------------------------------------------------
+sub msg {
+  print STDERR "[$EXE] @_\n";
+}
+
+#----------------------------------------------------------------------
+sub err {
+  msg("ERROR:", @_);
+  exit(1);
+}
+
+
