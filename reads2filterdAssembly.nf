@@ -11,6 +11,7 @@ params.evalue = 0.000001
 params.taxid = 2613844
 params.taxdump = "${params.btkPath}/taxdump/"
 params.taxrule = "bestsumorder"
+params.btkFilterString = "bestsumorder_superkingdom--Keys=Bacteria"
 params.kmer = '31'
 params.odb = 'nematoda_odb10'
 params.busco_downloads = '/lustre/scratch116/tol/teams/team301/dbs/busco_2020_08/busco_downloads/'
@@ -301,12 +302,13 @@ process add_hits_coverage_and_busco {
 process btk_static_images {
     tag "${strain}"
     label 'btk'
+    publishDir "$params.outdir/blobplots", mode: 'copy'
 
     input:
       tuple val(strain), path(btkdir)
 
     output:
-      tuple val(strain), path("${btkdir}")
+      path ("*.{png,svg}")
 
     script:
       """
@@ -320,7 +322,6 @@ process btk_static_images {
             --view cumulative \
             --format png --format svg \
             $btkdir
-      mv *svg *png $btkdir
       """
 }
 
@@ -344,8 +345,7 @@ process filter_fasta {
     filtered_readsFile = strainName + ".ccs.fasta.gz"
       """
       $params.blobtoolsPath filter \
-        --param bestsumorder_superkingdom--Keys=Bacteria \
-        --param gc--Max=0.49 \
+        --query-string "${params.btkFilterString}" \
         --fasta $assembly \
         --fastq $reads \
         --cov $bam \
@@ -368,6 +368,7 @@ workflow raw_asses {
         kat_plot(reads.join(hifiasm.out))
         create_blobDir(hifiasm.out)
         add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table))))
+        #btk_static_images(add_hits_coverage_and_busco.out)
         filter_fasta(add_hits_coverage_and_busco.out.join(map_reads.out.join(hifiasm.out.join(reads))))
     emit:
         filter_fasta.out.filtered_reads
@@ -385,6 +386,7 @@ workflow fltd_asses {
         kat_plot(reads.join(hifiasm.out))
         create_blobDir(hifiasm.out)
         add_hits_coverage_and_busco(create_blobDir.out.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_table))))
+        #btk_static_images(add_hits_coverage_and_busco.out)
     emit:
         add_hits_coverage_and_busco.out
 }
