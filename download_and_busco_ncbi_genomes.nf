@@ -24,19 +24,17 @@ accessions = Channel
 
 process downAssem {
    tag "${sci_name}"
+   publishDir "$params.outdir/assemblies", mode: 'copy'
 
     input:
-         tuple val(accession), val(sci_name)
+         tuple val(assemLink), val(sci_name)
 
     output:
         tuple val(sci_name), path("${sci_name}.fasta.gz"), emit: input_fastas
 
     script:
     """
-        datasets download assembly ${accession}
-        unzip ncbi_dataset.zip
-        cat ncbi_dataset/data/${accession}/*fna | gzip -c > ${sci_name}.fasta.gz
-        rm -r ncbi_dataset* README.md
+        curl ${assemLink} > ${sci_name}.fasta.gz
     """
 
 }
@@ -62,19 +60,18 @@ process busco {
         else
             ln -s $genome assembly.fasta
       fi
-      export AUGUSTUS_CONFIG_PATH=augustus_conf
-      cp -r /augustus/config/ \$AUGUSTUS_CONFIG_PATH
       busco -c ${task.cpus} -l $busco_db -i assembly.fasta --out run_busco --mode geno
       mv run_busco/short_summary* ${sci_name}_${busco_db}_short_summary.txt
-      mv run_busco/run_*/full_table.tsv ${sci_name}_${busco_db}_full_table.tsv
+      awk 'BEGIN{FS="\\t";OFS=FS}(\$3 !~ /:/){print}' run_busco/run_*/full_table.tsv > ${sci_name}_${busco_db}_full_table.tsv
+      #mv run_busco/run_*/full_table.tsv ${sci_name}_${busco_db}_full_table.tsv
 
-      for ext in .faa .fna; do
+      for ext in .faa; do
         seqFile=${sci_name}_${busco_db}_single_copy_busco_sequences\$ext
         for file in run_busco/run_${busco_db}/busco_sequences/single_copy_busco_sequences/*\$ext; do \
           echo \">\$(basename \${file%\$ext})\" >> \$seqFile; tail -n +2 \$file >> \$seqFile;
         done
       done
-      rm -rf run_busco/run_${busco_db}/ \$AUGUSTUS_CONFIG_PATH run_busco/blast_db run_busco/run_*/augustus_output run_busco/run_*/blast_output run_busco/run_*/hmmer_output assembly.fasta
+      rm -rf run_busco/run_${busco_db}/ run_busco/blast_db run_busco/run_*/blast_output run_busco/run_*/hmmer_output assembly.fasta
       """
 }
 
