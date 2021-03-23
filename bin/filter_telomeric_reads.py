@@ -104,17 +104,22 @@ def defunct_trim_sequence_from_start(seq, motif):
 
 def trim_sequence_from_start(seq, motif, min_occur):
     motif_size = len(motif)
-    trimmedSeq = re.sub("^.{0," + str(motif_size)
-                                + "}("
-                                + motif
-                                + ".?){"
-                                + str(min_occur)
-                                + ",999999}", "", seq)
+    trimmedSeq = re.sub("(" + motif
+                            + ".?)*.*("
+                            + motif
+                            + ".?){2,}"
+                            + motif, "", seq)
     return trimmedSeq
+
+def double_trim_sequence_from_start(seq, motif, min_occur):
+    trimmed1 = trim_sequence_from_start(seq, motif, min_occur)
+    doubleTrimmed = trim_sequence_from_start(trimmed1, motif, min_occur)
+    return doubleTrimmed
 
 
 
 if __name__ == "__main__":
+    minLen              = 500
     args                = docopt(__doc__)
     outfile             = args['--out']
     nontelomfile        = args['--lacking']
@@ -125,28 +130,29 @@ if __name__ == "__main__":
     supermotif_size     = motif_size * int(args['--times'])
     supermotif          = motif      * int(args['--times'])
     rev_supermotif      = reverse_complement_sequence(supermotif)
+    searchSpace         = supermotif_size * 2
     write_non_telomeric = bool(nontelomfile)
     non_telomeric_reads = ''
     telomeric_reads     = ''
 
     for name, seq, qual in readfq(sys.stdin):
         read_size = len(seq)
+        trimmed_sequence = ''
         if read_size >= 2 * motif_size * min_occur:
-            seq_start = get_sequence_start(seq, supermotif_size * 2)
-            seq_end = get_sequence_end(seq, supermotif_size * 2)
-            begins_with_telomere = rev_supermotif in seq_start or supermotif in seq_start
-            ends_with_telomere   = rev_supermotif in seq_end   or supermotif in seq_end
-            if begins_with_telomere:
-                if not ends_with_telomere:
-                    telomeric_reads += ">%s\n" % name
+            seq_start = seq[0:searchSpace]
+            seq_end   = seq[-searchSpace:]
+            matches_start = re.finditer("("+reverse_complement_sequence(motif)  + "){" + str(min_occur) +",}" , str(seq_start), re.I)
+            matches_end = re.finditer("("+ motif  + "){" + str(min_occur) +",}" , str(seq_end), re.I)
+            if any(matches_start):
+                if not any(matches_end):
                     trimmed_sequence = trim_sequence_from_start(seq,
                                                                 rev_motif, min_occur)
-                    telomeric_reads += "%s\n" % trimmed_sequence
-            elif ends_with_telomere:
-                telomeric_reads += ">%s\n" % name
+            elif any(matches_end):
                 trimmed_sequence = trim_sequence_from_start(
                     reverse_complement_sequence(seq),
                  rev_motif, min_occur)
+            if len(trimmed_sequence) > minLen:
+                telomeric_reads += ">%s\n" % name
                 telomeric_reads += "%s\n" % trimmed_sequence
             elif write_non_telomeric:
                 non_telomeric_reads += ">%s\n" % name
