@@ -8,7 +8,7 @@ params.odb = 'nematoda_odb10'
 params.busco_downloads = './busco_downloads'
 params.telomere = 'TTAGGC'
 params.busco2nigons = "gene2Nigon_busco20200927.tsv.gz"
-params.min_occurr = 15
+params.min_occurr = 3
 params.teloRepeatWindowSize = 1000
 params.minimumGenesPerSequence = 15
 params.minimumNigonFrac = 0.9
@@ -65,7 +65,6 @@ process busco {
 
 process get_telomeric_reads {
     tag "${strain}"
-    label 'nemaQC'
     publishDir "$params.outdir/teloReads", mode: 'copy'
 
     input:
@@ -75,8 +74,7 @@ process get_telomeric_reads {
 
     script:
       """
-      zcat $reads | filter_telomeric_reads.py --motif ${params.telomere} \
-        --times ${params.min_occurr} --out ${strain}.telo.fasta.gz
+      telomeric-trim $reads ${params.telomere} ${params.min_occurr} | gzip -c > ${strain}.telo.fasta.gz
       """
 }
 
