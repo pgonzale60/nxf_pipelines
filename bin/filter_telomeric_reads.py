@@ -130,7 +130,7 @@ if __name__ == "__main__":
     supermotif_size     = motif_size * int(args['--times'])
     supermotif          = motif      * int(args['--times'])
     rev_supermotif      = reverse_complement_sequence(supermotif)
-    searchSpace         = supermotif_size * 2
+    searchSpace         = minLen * 2
     write_non_telomeric = bool(nontelomfile)
     non_telomeric_reads = ''
     telomeric_reads     = ''
@@ -138,10 +138,10 @@ if __name__ == "__main__":
     for name, seq, qual in readfq(sys.stdin):
         read_size = len(seq)
         trimmed_sequence = ''
-        if read_size >= 2 * motif_size * min_occur:
+        if read_size >= searchSpace:
             seq_start = seq[0:searchSpace]
             seq_end   = seq[-searchSpace:]
-            matches_start = re.finditer("("+reverse_complement_sequence(motif)  + "){" + str(min_occur) +",}" , str(seq_start), re.I)
+            matches_start = re.finditer("("+rev_motif  + "){" + str(min_occur) +",}" , str(seq_start), re.I)
             matches_end = re.finditer("("+ motif  + "){" + str(min_occur) +",}" , str(seq_end), re.I)
             if any(matches_start):
                 if not any(matches_end):
