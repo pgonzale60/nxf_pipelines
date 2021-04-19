@@ -74,13 +74,12 @@ process get_telomeric_reads {
 
     script:
       """
-      telomeric-trim $reads ${params.telomere} ${params.min_occurr} | gzip -c > ${strain}.telo.fasta.gz
+      zcat $reads | filter_telomeric_reads.py -m ${params.telomere} --times ${params.min_occurr} -o ${strain}.telo.fasta.gz
       """
 }
 
 process map_telomeric_reads {
     tag "${assemblies[1]}"
-    publishDir "$params.outdir/teloMaps", mode: 'copy'
     label 'nemaQC'
 
     input:
