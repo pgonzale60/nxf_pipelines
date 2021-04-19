@@ -14,7 +14,7 @@ options:
     -m STR, --motif STR     telomeric repeat
                             [Default: TTAGGC]
     --times INT             minimum number of contiguous occurrences.
-                            [Default: 50]
+                            [Default: 3]
     -o FILE, --out FILE     filename for gzip compressed for telomeric reads.
                             [Default: telomericReads.fasta.gz]
     -l FILE, --lacking FILE filename for gzip compressed for non-telomeric reads.
@@ -22,14 +22,10 @@ options:
 
 import gzip
 import sys
-from itertools import groupby
 from docopt import docopt
-from subprocess import Popen, PIPE
-import shlex
-import re
 
 __author__ = "Pablo Manuel Gonzalez de la Rosa"
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 def readfq(fp): # this is a generator function
     last = None # this is a buffer keeping the last unprocessed line
@@ -62,64 +58,18 @@ def readfq(fp): # this is a generator function
                 yield name, seq, None # yield a fasta record instead
                 break
 
-def get_start_and_end_of_sequence(seq, size, nmer_size):
-    return seq[0:size + nmer_size - 1] + ("N" * size) + seq[-(size + nmer_size - 1)::]
 
-def get_sequence_start(seq, size):
-    return seq[0:size]
-
-def get_sequence_end(seq, size):
-    return seq[-size::]
-
-def self_concatenate_n_times(motif, n):
-    return motif * n
 
 def reverse_complement_sequence(seq):
     complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
     reverse_complement = "".join(complement.get(base, base) for base in reversed(seq))
     return reverse_complement
 
-def defunct_trim_sequence_from_start(seq, motif):
-    motif_size = len(motif)
-    rev_motif = reversed(motif)
-    motif_pos = 0
-    updated_min_search_pos = 0 
-    # expanding the search space up to almost twice the motif size
-    # leaves space for inexact beggining of match,
-    # which can correspond to degenerate sequence or 
-    # incomplete motif at the beggining of sequence
-    # allowing up to a 3 nucleotides insertion and
-    # some motif mismatch
-    updated_top_search_pos = motif_size + (motif_size - 1)
-    while motif_pos >= 0:
-        min_search_pos = updated_min_search_pos
-        top_search_pos = updated_top_search_pos
-        motif_pos = seq[min_search_pos:top_search_pos].find(motif)
-        if motif_pos == 0:
-            motif_pos = motif_size
-        updated_min_search_pos += motif_pos
-        updated_top_search_pos += motif_pos
-    return seq[min_search_pos:]
-
-
-def trim_sequence_from_start(seq, motif, min_occur):
-    motif_size = len(motif)
-    trimmedSeq = re.sub("(" + motif
-                            + ".?)*.*("
-                            + motif
-                            + ".?){2,}"
-                            + motif, "", seq)
-    return trimmedSeq
-
-def double_trim_sequence_from_start(seq, motif, min_occur):
-    trimmed1 = trim_sequence_from_start(seq, motif, min_occur)
-    doubleTrimmed = trim_sequence_from_start(trimmed1, motif, min_occur)
-    return doubleTrimmed
 
 
 
 if __name__ == "__main__":
-    minLen              = 500
+    minLen              = 1
     args                = docopt(__doc__)
     outfile             = args['--out']
     nontelomfile        = args['--lacking']
@@ -139,18 +89,15 @@ if __name__ == "__main__":
         read_size = len(seq)
         trimmed_sequence = ''
         if read_size >= searchSpace:
-            seq_start = seq[0:searchSpace]
-            seq_end   = seq[-searchSpace:]
-            matches_start = re.finditer("("+rev_motif  + "){" + str(min_occur) +",}" , str(seq_start), re.I)
-            matches_end = re.finditer("("+ motif  + "){" + str(min_occur) +",}" , str(seq_end), re.I)
-            if any(matches_start):
-                if not any(matches_end):
-                    trimmed_sequence = trim_sequence_from_start(seq,
-                                                                rev_motif, min_occur)
-            elif any(matches_end):
-                trimmed_sequence = trim_sequence_from_start(
-                    reverse_complement_sequence(seq),
-                 rev_motif, min_occur)
+            matches_start = seq.find(rev_motif, 0, motif_size * 3)
+            matches_end = seq.find(motif, -motif_size * 3)
+            if matches_start >= 0:
+                if not matches_end >= 0:
+                    telomere_pos = seq.rfind(rev_motif * min_occur) + (motif_size * min_occur)
+                    trimmed_sequence = seq[telomere_pos:]
+            elif matches_end >= 0:
+                telomere_pos = seq.find(motif * min_occur)
+                trimmed_sequence = reverse_complement_sequence(seq[0:telomere_pos])
             if len(trimmed_sequence) > minLen:
                 telomeric_reads += ">%s\n" % name
                 telomeric_reads += "%s\n" % trimmed_sequence
