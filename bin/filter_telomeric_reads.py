@@ -1,31 +1,36 @@
 #!/usr/bin/env python3
 """
-Filter pacbio reads with contigous repeat at their start or end and trim telomeric repeats.
-This script relies on the high fidelity and strandedness of PacBio HiFi reads.
-The strongest assumption is that the forward motif will only occur on the right
-end of the reads, while the reverse complement of the motif can only
-occur on the left side.
+Identify long reads with telomeric repeats at their start or end, trim and reorient.
+The resulting sequences start on the side were the telomere was trimmed.
+This script relies on the strandedness of the input motif and long reads by assuming that
+the forward motif will only occur on the right end of the reads, 
+while the reverse complement of the motif will occur on the left side.
 
 Usage:
-        filter_telomeric_reads.py [--motif STR] [--times INT]
-                                  [--out FILE] [--lacking FILE]
+        filter_telomeric_reads.py [--reads FILE] [--string STR] 
+                                  [--out FILE] [--times INT]
+                                  [--buffered INT] [--min_len INT] 
 
 options:
-    -m STR, --motif STR     telomeric repeat
+    -r FILE, --reads FILE   filename for uncompressed reads to trim.
+    -s STR, --string STR    telomeric repeat
                             [Default: TTAGGC]
     --times INT             minimum number of contiguous occurrences.
                             [Default: 3]
-    -o FILE, --out FILE     filename for gzip compressed for telomeric reads.
-                            [Default: telomericReads.fasta.gz]
-    -l FILE, --lacking FILE filename for gzip compressed for non-telomeric reads.
+    -m INT, --min_len INT   Minimum length of trimmed read
+                            [Default: 100]
+    -b INT, --buffered INT  Length of sequence to be kept in memory
+                            [Default: 10000000]
+    -o FILE, --out FILE     filename for telomeric reads.
+                            [Default: telomericReads.fasta]
 """
 
-import gzip
 import sys
+import os
 from docopt import docopt
 
 __author__ = "Pablo Manuel Gonzalez de la Rosa"
-__version__ = '1.1.0'
+__version__ = '1.2.0'
 
 def readfq(fp): # this is a generator function
     last = None # this is a buffer keeping the last unprocessed line
@@ -59,56 +64,85 @@ def readfq(fp): # this is a generator function
                 break
 
 
-
+complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
 def reverse_complement_sequence(seq):
-    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
     reverse_complement = "".join(complement.get(base, base) for base in reversed(seq))
     return reverse_complement
 
+search_space_inside_read = 15
+def trim_seq(seq, min_occur, motif_size, motif, rev_motif, longer_motif, longer_rev_motif):
+    trimmed_sequence = ''
+    matches_start = seq.find(rev_motif, 0, motif_size * search_space_inside_read)
+    matches_end = seq.find(motif, -motif_size * search_space_inside_read)
+    if matches_start >= 0:
+        # longer_motif_matches_start = seq.find(longer_rev_motif, 0, motif_size * min_occur * 3)
+        longer_motif_matches_start = seq.rfind(longer_rev_motif)
+        if longer_motif_matches_start >= 0:
+            telomere_pos = longer_motif_matches_start + (motif_size * min_occur)
+            trimmed_sequence = seq[telomere_pos:]
+    elif matches_end >= 0:
+        # longer_motif_matches_end = seq.find(longer_motif, 0, motif_size * min_occur * 3)
+        longer_motif_matches_end = seq.find(longer_motif)
+        if longer_motif_matches_end >= 0:
+            telomere_pos = longer_motif_matches_end
+            trimmed_sequence = reverse_complement_sequence(seq[0:telomere_pos])
+    return trimmed_sequence
 
 
 
 if __name__ == "__main__":
-    minLen              = 1
     args                = docopt(__doc__)
-    outfile             = args['--out']
-    nontelomfile        = args['--lacking']
-    motif               = args['--motif']
-    rev_motif           = reverse_complement_sequence(motif)
-    motif_size          = len(motif)
+    motif               = args['--string']
+    fastafile           = args['--reads']
     min_occur           = int(args['--times'])
-    supermotif_size     = motif_size * int(args['--times'])
-    supermotif          = motif      * int(args['--times'])
-    rev_supermotif      = reverse_complement_sequence(supermotif)
-    searchSpace         = minLen * 2
-    write_non_telomeric = bool(nontelomfile)
-    non_telomeric_reads = ''
+    min_len             = int(args['--min_len'])
+    buffer_size         = int(args['--buffered'])
+    outfile             = args['--out']
+    rev_motif           = reverse_complement_sequence(motif)
+    longer_motif        = motif * min_occur
+    longer_rev_motif    = rev_motif * min_occur
+    motif_size          = len(motif)
     telomeric_reads     = ''
+    seq_in_mem_len      = 0
 
-    for name, seq, qual in readfq(sys.stdin):
-        read_size = len(seq)
-        trimmed_sequence = ''
-        if read_size >= searchSpace:
-            matches_start = seq.find(rev_motif, 0, motif_size * 3)
-            matches_end = seq.find(motif, -motif_size * 3)
-            if matches_start >= 0:
-                if not matches_end >= 0:
-                    telomere_pos = seq.rfind(rev_motif * min_occur) + (motif_size * min_occur)
-                    trimmed_sequence = seq[telomere_pos:]
-            elif matches_end >= 0:
-                telomere_pos = seq.find(motif * min_occur)
-                trimmed_sequence = reverse_complement_sequence(seq[0:telomere_pos])
-            if len(trimmed_sequence) > minLen:
-                telomeric_reads += ">%s\n" % name
-                telomeric_reads += "%s\n" % trimmed_sequence
-            elif write_non_telomeric:
-                non_telomeric_reads += ">%s\n" % name
-                non_telomeric_reads += "%s\n" % seq
+    # parse to read stdin or read to file
+    if fastafile == "-":
+        infile = sys.stdin
+        print("Reading from STDIN")
+    else:
+        infile = open(fastafile, 'rU')
 
-                
-    with gzip.open(outfile, 'wt') as ofh:
-        ofh.writelines(telomeric_reads)
+
+
+    if os.path.exists(outfile):
+        print("[WARNING] Overwriting existing file: {}".format(outfile))
+        os.remove(outfile)
+
+    for name, seq, qual in readfq(infile):
+        trimmed_sequence = trim_seq(seq, min_occur, motif_size,
+        motif, rev_motif, longer_motif, longer_rev_motif)
+        trimmed_len = len(trimmed_sequence)
+        if trimmed_len > min_len:
+            telomeric_reads += ">%s\n" % name
+            telomeric_reads += "%s\n" % trimmed_sequence
+            seq_in_mem_len += trimmed_len
+            if seq_in_mem_len > buffer_size:
+                with open(outfile, 'a') as ofh:
+                    ofh.writelines(telomeric_reads)
+                telomeric_reads = ''
+                seq_in_mem_len = 0
+
+    # Write sequence left in buffer after loop ends
+    if seq_in_mem_len > 0:
+        with open(outfile, 'a') as ofh:
+                    ofh.writelines(telomeric_reads)
+
+    # If no read had telomeres, create an empty file
+    if not os.path.exists(outfile):
+        open(outfile, 'a').close()
+        print("[WARNING] No reads were identified with telomeric repeat")
     
-    if write_non_telomeric:
-        with gzip.open(nontelomfile, 'wt') as nofh:
-            nofh.writelines(non_telomeric_reads)
+
+    # parse to close opened file
+    if fastafile != "-":
+        infile.close()
