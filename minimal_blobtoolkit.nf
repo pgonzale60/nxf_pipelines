@@ -4,14 +4,14 @@ date = new Date().format( 'yyyyMMdd' )
 params.outdir = "miniBtk-${date}"
 params.reads = "/home/ubuntu/oscheius/0-inputs/test.ccsf.fasta.gz"
 params.assemblies = "/home/ubuntu/oscheius/0-inputs/test.fasta"
-params.btkPath = "~/sw/blobtoolkit/"
-params.blobtoolsPath = "${params.btkPath}/blobtools2/blobtools"
+params.odb = 'nematoda_odb10'
+params.busco_downloads = "/lustre/scratch123/tol/teams/blaxter/projects/tol-nemotodes/dbs/busco_downloads/"
 params.dmnd_db = "custom.dmnd"
 params.sampRate = 0.2
 params.max_target_seqs = 1000
 params.evalue = 0.000001
 params.taxid = 2613844
-params.taxdump = "${params.btkPath}/taxdump/"
+params.taxdump = "taxdump/"
 params.taxrule = "bestsumorder"
 
 
@@ -31,31 +31,14 @@ reads = Channel.fromPath(params.reads, checkIfExists: true)
                 .map { file -> tuple(file.Name - ~/(_hifi_reads.fasta.gz)?(\.merged)?(\.subsamp)?(\.ccs)?(\.fa)?(\.fasta)?(\.fastq)?(\.gz)?$/, file) }
 assemblies = Channel.fromPath(params.assemblies, checkIfExists: true)
                 .map { file -> tuple(file.Name - ~/(\.fasta)?(\.gz)?$/, file.Name - ~/(_hifiasm.bp.p_ctg.fa)?(\.noTelos)?(\.flyemeta)?(\.hifiasm)?(\.tol)?(\.g30k)?(\.purged)?(\.l500k)?(\.salsa)?(\.juiced)?(\.noCont)?(\.noMito)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
+busco_dbs = Channel.of(params.odb.split(','))
+busco_db_dir = file(params.busco_downloads)
 
-// reads.view()
-// assemblies.map{it -> tuple(it[1], it[0], it[2]) }.view()
-// assemblies.groupTuple(by: 1).map{it -> tuple(it[0][0]) }.view()
-// reads.cross(assemblies.map{it -> tuple(it[1], it[0], it[2]) }).view()
-
-
-process subsample_reads {
-    tag "${strain}"
-
-    input:
-      tuple val(strain), path(reads)
-
-    output:
-      tuple val(strain), path("${strain}.subsamp.fa.gz")
-
-    script:
-      """
-      seqkit sample -p $params.sampRate $reads | gzip -c > ${strain}.subsamp.fa.gz
-      """
-}
 
 process busco {
     tag "${assembler}_${busco_db}"
     publishDir "$params.outdir/busco", mode: 'copy'
+    label 'btk'
 
     input:
       tuple val(strain), val(assembler), path(genome), val(busco_db)
@@ -228,7 +211,6 @@ process add_hits_and_coverage {
 
 
 workflow {
-    // subsample_reads(reads)
     mask_assembly(assemblies) | chunk_assembly
     busco(assemblies.combine(busco_dbs), busco_db_dir)
     diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
