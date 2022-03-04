@@ -1,4 +1,4 @@
-nextflow.preview.dsl=2
+nextflow.enable.dsl=2
 
 date = new Date().format( 'yyyyMMdd' )
 params.outdir = "miniBtk-${date}"
@@ -7,6 +7,7 @@ params.assemblies = "/home/ubuntu/oscheius/0-inputs/test.fasta"
 params.btkPath = "~/sw/blobtoolkit/"
 params.blobtoolsPath = "${params.btkPath}/blobtools2/blobtools"
 params.dmnd_db = "custom.dmnd"
+params.sampRate = 0.2
 params.max_target_seqs = 1000
 params.evalue = 0.000001
 params.taxid = 2613844
@@ -25,48 +26,102 @@ params.taxrule = "bestsumorder"
 // zcat dbs/custom/*.faa.gz | diamond makedb -p 8 -d custom --taxonmap prot.accession2taxid.gz --taxonnodes dbs/nodes.dmp
 
 dmnd_db = Channel.fromPath(params.dmnd_db, checkIfExists: true).collect()
+taxdump_db = Channel.fromPath(params.taxdump, checkIfExists: true).collect()
 reads = Channel.fromPath(params.reads, checkIfExists: true)
-                .map { file -> tuple(file.Name - ~/.ccs.fasta.gz/, file) }
-assemblies = Channel.fromPath(params.assemblies, checkIfExists: true) 
-                .map { file -> tuple(file.simpleName - ~/-hifiasm/, file) }
+                .map { file -> tuple(file.Name - ~/(_hifi_reads.fasta.gz)?(\.merged)?(\.subsamp)?(\.ccs)?(\.fa)?(\.fasta)?(\.fastq)?(\.gz)?$/, file) }
+assemblies = Channel.fromPath(params.assemblies, checkIfExists: true)
+                .map { file -> tuple(file.Name - ~/(\.fasta)?(\.gz)?$/, file.Name - ~/(_hifiasm.bp.p_ctg.fa)?(\.noTelos)?(\.flyemeta)?(\.hifiasm)?(\.tol)?(\.g30k)?(\.purged)?(\.l500k)?(\.salsa)?(\.juiced)?(\.noCont)?(\.noMito)?(\.fa)?(\.fasta)?(\.gz)?$/, file) }
 
-datasets = reads.join(assemblies)
+// reads.view()
+// assemblies.map{it -> tuple(it[1], it[0], it[2]) }.view()
+// assemblies.groupTuple(by: 1).map{it -> tuple(it[0][0]) }.view()
+// reads.cross(assemblies.map{it -> tuple(it[1], it[0], it[2]) }).view()
 
 
-process mask_assembly {
+process subsample_reads {
     tag "${strain}"
 
     input:
-      tuple val(strain), path(assembly)
+      tuple val(strain), path(reads)
 
     output:
-      tuple val(strain), path("${strain}.masked.fasta")
+      tuple val(strain), path("${strain}.subsamp.fa.gz")
 
     script:
       """
-      windowmasker -in $assembly \
+      seqkit sample -p $params.sampRate $reads | gzip -c > ${strain}.subsamp.fa.gz
+      """
+}
+
+process busco {
+    tag "${assembler}_${busco_db}"
+    publishDir "$params.outdir/busco", mode: 'copy'
+
+    input:
+      tuple val(strain), val(assembler), path(genome), val(busco_db)
+      path busco_db_dir
+
+    output:
+      path "*single_copy_busco_sequences.{faa,fna}"
+      path "${assembler}_${busco_db}_short_summary.txt"
+      tuple val(assembler), path( "${assembler}_${busco_db}_full_table.tsv"), emit: busco_full
+
+    script:
+      """
+      export http_proxy=http://wwwcache.sanger.ac.uk:3128
+      export https_proxy=http://wwwcache.sanger.ac.uk:3128
+      busco -c ${task.cpus} -l $busco_db -i $genome --out run_busco --mode geno
+      awk 'BEGIN{FS="\\t";OFS=FS}(\$3 !~ /:/){print}' run_busco/run_*/full_table.tsv > ${assembler}_${busco_db}_full_table.tsv
+      mv run_busco/short_summary* ${assembler}_${busco_db}_short_summary.txt
+      #mv run_busco/run_*/full_table.tsv ${assembler}_${busco_db}_full_table.tsv
+      for ext in .faa; do
+        seqFile=${assembler}_${busco_db}_single_copy_busco_sequences\$ext
+        for file in run_busco/run_${busco_db}/busco_sequences/single_copy_busco_sequences/*\$ext; do
+          echo \">\$(basename \${file%\$ext})\" >> \$seqFile; tail -n +2 \$file >> \$seqFile;
+        done
+      done
+      rm -rf run_busco/
+      """
+}
+
+process mask_assembly {
+    tag "${strain}"
+    label 'btk'
+
+    input:
+      tuple val(strain), val(assemName), path(assembly)
+
+    output:
+      tuple val(strain), val(assemName), path("${strain}.masked.fasta")
+
+    script:
+      """
+      cp $assembly assembly.fasta
+      windowmasker -in assembly.fasta \
                       -infmt fasta \
                       -mk_counts \
                       -sformat obinary \
                       -out tmp.counts 2> log \
-        && windowmasker -in $assembly \
+        && windowmasker -in assembly.fasta \
                         -infmt fasta \
                         -ustat tmp.counts \
                         -dust T \
                         -outfmt fasta \
                         -out ${strain}.masked.fasta
+      rm assembly.fasta
       """
 }
 
 
 process chunk_assembly {
-    tag "${strain}"
+    tag "${assemName}"
+    label 'btk'
 
     input:
-      tuple val(strain), path(assembly)
+      tuple val(assemName), val(strain), path(assembly)
 
     output:
-      tuple val(strain), path("${strain}.chunks.fasta")
+      tuple val(assemName),path("${strain}.chunks.fasta")
 
     script:
       """
@@ -78,6 +133,8 @@ process chunk_assembly {
 
 process diamond_search {
     tag "${strain}"
+    label 'big_parallelizable'
+    label 'btk'
 
     input:
       tuple val(strain), path(assembly)
@@ -103,6 +160,7 @@ process diamond_search {
 process unchunk_hits {
     tag "${strain}"
     publishDir "$params.outdir/", mode: 'copy'
+    label 'btk'
 
     input:
       tuple val(strain), path(diamondHits)
@@ -117,58 +175,63 @@ process unchunk_hits {
       """
 }
 
+
+
 process map_reads {
-    tag "${strain}"
+    tag "${assemblies[1]}"
+    publishDir "$params.outdir/", mode: 'copy'
 
     input:
-      tuple val(strain), path(reads), path(assembly)
+      tuple val(reads), val(assemblies)
 
     output:
-      tuple val(strain), path("${strain}.bam")
+      tuple val("${assemblies[1]}"), path("${assemblies[1]}.bam")
 
     script:
       """
-      minimap2 -a -k 19 -w 10 -I 10G -g 5000 -r 2000 -N 100 \
-        --lj-min-ratio 0.5 -A 2 -B 5 -O 5,56 -E 4,1 -z 400,50 \
-        --sam-hit-only -t ${task.cpus} ${assembly} \
-        $reads | \
-        samtools sort -@ ${task.cpus} -o ${strain}.bam
+      /software/team301/minimap2-2.24/minimap2 -ax map-hifi \
+        --sam-hit-only -t ${task.cpus} ${assemblies[2]} \
+        ${reads[1]} | \
+        samtools sort -@ ${task.cpus} -o ${assemblies[1]}.bam
       """
 }
 
 process add_hits_and_coverage {
     tag "${strain}"
     publishDir "$params.outdir/btkDatasets", mode: 'copy'
+    label 'btk'
 
     input:
-      tuple val(strain), path(diamondHits), path(bam)
-      tuple val(strain2), path(assembly)
+      tuple val(assemName), val(strain), path(assembly), path(diamondHits), path(bam), path(busco_full_tsv)
+      path(taxdump_db)
 
     output:
-      tuple val(strain), path("${strain}")
+      tuple val(assemName), path("${assemName}"), emit: blobDir
 
     script:
       """
-      $params.blobtoolsPath create \
+      blobtools create \
             --fasta ${assembly} \
-            --taxdump $params.taxdump \
+            --taxdump $taxdump_db \
             --taxid $params.taxid \
-            $strain
+            $assemName
 
-      $params.blobtoolsPath add \
+      blobtools add \
             --hits ${diamondHits} \
-            --taxdump $params.taxdump \
+            --busco ${busco_full_tsv} \
+            --taxdump $taxdump_db \
             --taxrule $params.taxrule \
-            --cov ${bam}=reads \
-            $strain
+            --cov ${bam} \
+            $assemName
       """
 }
 
 
 workflow {
+    // subsample_reads(reads)
     mask_assembly(assemblies) | chunk_assembly
+    busco(assemblies.combine(busco_dbs), busco_db_dir)
     diamond_search(chunk_assembly.out, dmnd_db) | unchunk_hits
-    map_reads(datasets)
-    add_hits_and_coverage(unchunk_hits.out.join(map_reads.out), assemblies)
+    map_reads(reads.cross(assemblies.map{it -> tuple(it[1], it[0], it[2]) }))
+    add_hits_and_coverage(assemblies.join(unchunk_hits.out.join(map_reads.out.join(busco.out.busco_full))), taxdump_db) 
 }
-
