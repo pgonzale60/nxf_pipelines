@@ -119,7 +119,7 @@ while (my $line = <ARGV>) {
           $adjust -= $len if $op eq 'D';
         }
         $adjust += $SL + $SR;
-        my $adjustedend = $start + $readlen - $adjust - 1; # -1 To adjust for 0-based indexing
+        my $adjustedend = $start + $readlen - $adjust - 1; 
         print join("\t", $sam[SAM_RNAME], $adjustedend, "R", $sam[SAM_MAPQ]), "\n";
         $rightend++;
       }
@@ -130,7 +130,7 @@ while (my $line = <ARGV>) {
       my $potentialSequence = substr($sam[SAM_SEQ], 0, $SL + 1);
       my $startswithtelomere = ($potentialSequence =~ /^\w{0,\Q$telosearchspace\E}\Q$revcomptelomere/);
       if($startswithtelomere){
-        print join("\t", $sam[SAM_RNAME], $start -1, "L", $sam[SAM_MAPQ]), "\n"; # -1 To adjust for 0-based indexing
+        print join("\t", $sam[SAM_RNAME], $start, "L", $sam[SAM_MAPQ]), "\n";
         $leftend++;
       }
     }
