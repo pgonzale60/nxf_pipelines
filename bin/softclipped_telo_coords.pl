@@ -31,6 +31,7 @@ use constant {
 
 my $telomere  = "TTAGGC";
 my $debug     = 0;
+my $minTeloN  = 1;
 
 #----------------------------------------------------------------------
 sub usage {
@@ -77,8 +78,9 @@ my $rightend=0;
 my $addedlen=0;
 # at most this number of bases can lack telomeric repeat
 # intended for dealing with read errors
-my $telosearchspace =  3 * length($telomere); 
-my $revcomptelomere=reverse $telomere;
+my $telolength = length($telomere); 
+my $telosearchspace =  3 * $telolength; 
+my $revcomptelomere= reverse $telomere;
 $revcomptelomere =~ tr/ACGTacgt/TGCAtgca/;
 
 # read SAM one line ar a time
@@ -105,9 +107,14 @@ while (my $line = <ARGV>) {
 
     ## Check telomere on the right side of read
     if ( $SR > $telosearchspace ) {
-      my $potentialSequence = substr($sam[SAM_SEQ], $readlen - $SR, $readlen + 1);
-      my $endswithtelomere = ($potentialSequence =~ /\Q$telomere\E\w{0,\Q$telosearchspace\E}$/);
-      if ($endswithtelomere){
+      my $potentialSequence = substr($sam[SAM_SEQ], $readlen - $SR - ($telolength), $readlen + 1);
+      my $endswithtelomere = () = $potentialSequence =~ /$telomere/gi;
+      # location from https://stackoverflow.com/questions/1849329/is-there-a-perl-shortcut-to-count-the-number-of-matches-in-a-string
+      # telomere match is correct, but when converting back to the coordinates, need to account for the fact
+      # that the substring starts before the softclip coordinate. That is, the $location could be negative
+      # relative to the softclip position. 
+      my $location = index($potentialSequence, $telomere) - ($telolength);
+      if ($endswithtelomere > $minTeloN){
         # adjust end of alignment by indels and deletion length
         # this is obtained by parsing the CIGAR string
         # code adapted from https://github.com/holmeso/adamaperl/blob/56fee71f0c431e3b98ef5f3fc1a2a7213e755e14/lib/QCMG/SamTools/Bam/Alignment.pm#L569
@@ -119,18 +126,20 @@ while (my $line = <ARGV>) {
           $adjust -= $len if $op eq 'D';
         }
         $adjust += $SL + $SR;
-        my $adjustedend = $start + $readlen - $adjust - 1; 
-        print join("\t", $sam[SAM_RNAME], $adjustedend, "R", $sam[SAM_MAPQ]), "\n";
+        my $adjustedend = $start + $readlen - $adjust;
+        print join("\t", $sam[SAM_RNAME], $adjustedend, "R", $sam[SAM_MAPQ], $location, $endswithtelomere), "\n";
         $rightend++;
       }
 
     } 
     if ( $SL > $telosearchspace ){
       ## Check telomere on the left side of read
-      my $potentialSequence = substr($sam[SAM_SEQ], 0, $SL + 1);
-      my $startswithtelomere = ($potentialSequence =~ /^\w{0,\Q$telosearchspace\E}\Q$revcomptelomere/);
-      if($startswithtelomere){
-        print join("\t", $sam[SAM_RNAME], $start, "L", $sam[SAM_MAPQ]), "\n";
+      my $potentialSequence = substr($sam[SAM_SEQ], 0, $SL + 1 + ($telolength));
+      # my $startswithtelomere = ($potentialSequence =~ /^\w{0,\Q$telosearchspace\E}\Q$revcomptelomere/);
+      my $startswithtelomere = () = $potentialSequence =~ /$revcomptelomere/gi;
+      my $location = rindex($potentialSequence, $revcomptelomere ) + $telolength - $SL;
+      if($startswithtelomere > $minTeloN){
+        print join("\t", $sam[SAM_RNAME], $start, "L", $sam[SAM_MAPQ], $location, $startswithtelomere), "\n";
         $leftend++;
       }
     }
